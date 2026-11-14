@@ -1,0 +1,2516 @@
+openapi: "3.0.3"
+info:
+  title: PyrosHarmonizer API
+  description: >-
+    API REST para la armonización y unificación de datos de focos de calor
+    satelitales de NASA FIRMS (sensores MODIS C6.1 y VIIRS 375m). Desarrollada
+    para el 2026 NASA International Space Apps Challenge (Sede Santa Cruz de la
+    Sierra, Bolivia - Universidad Católica Boliviana) en respuesta al Reto #8:
+    'Harmonization of MODIS and VIIRS Hot Spots'.
+
+    Resuelve el 'Efecto 2012' en series temporales históricas mediante clustering
+    espacio-temporal (ST-DBSCAN), reconstrucción geométrica de huellas satelitales
+    (scan × track), calibración radiativa de FRP hacia el Índice Armonizado de
+    Intensidad de Fuego (HFII) e indexación espacial hexagonal Uber H3.
+  version: "1.0.0"
+  contact:
+    name: Equipo PyrosHarmonizers (UCB Santa Cruz de la Sierra, Bolivia)
+    url: https://github.com/PyrosHarmonizers/PyrosHarmonizer
+    email: contacto@pyrosharmonizer.spaceapps.bo
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Servidor de desarrollo local (Local development)
+  - url: https://pyrosharmonizer.railway.app/api/v1
+    description: Servidor de producción en la nube (Production Railway)
+
+tags:
+  - name: health
+    description: Diagnóstico de salud del sistema, conectividad PostGIS y estado de servicios
+  - name: meta
+    description: Metadatos técnicos de los sensores satelitales y cobertura temporal/espacial
+  - name: ingest
+    description: Pipeline de ingesta masiva de focos térmicos desde NASA FIRMS (API / CSV)
+  - name: hotspots
+    description: Consulta y comparación analítica de focos de calor crudos (MODIS vs VIIRS)
+  - name: harmonized
+    description: Eventos de fuego armonizados mediante ST-DBSCAN, índices HFII y grillas H3
+  - name: calendar
+    description: Calendario de actividad de quemas, matrices estacionales y detección de anomalías
+  - name: regions
+    description: Delimitaciones geográficas, ecorregiones (Chiquitanía, Amazonía) y estadísticas
+  - name: export
+    description: Exportación de datos geoespaciales (GeoJSON, CSV) y generación de reportes ejecutivos en PDF
+
+paths:
+  /health:
+    get:
+      tags:
+        - health
+      summary: Estado y diagnóstico del sistema
+      description: Retorna el estado operativo de la API, conectividad con PostgreSQL 16 y PostGIS 3.4, tiempo de actividad (uptime) y fecha de la última ingesta satelital.
+      operationId: getSystemHealth
+      responses:
+        "200":
+          description: Sistema operativo y saludable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              examples:
+                healthyExample:
+                  summary: Sistema saludable
+                  value:
+                    status: healthy
+                    version: "1.0.0"
+                    uptime: "72h 14m 22s"
+                    db_connected: true
+                    postgis_version: "3.4.2"
+                    last_ingestion: "2026-11-14T12:00:00Z"
+                    memory_usage_mb: 248.5
+        "503":
+          description: Servicio no disponible o falla en la base de datos
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                dbDownExample:
+                  summary: Error de conexión con PostGIS
+                  value:
+                    status_code: 503
+                    error: Service Unavailable
+                    message: "No se pudo establecer conexión con PostgreSQL/PostGIS"
+                    details:
+                      db_host: "postgres-postgis:5432"
+                      error_code: "ECONNREFUSED"
+                    timestamp: "2026-11-14T15:00:00Z"
+                    path: "/api/v1/health"
+
+  /meta/sensors:
+    get:
+      tags:
+        - meta
+      summary: Metadatos técnicos de los sensores térmicos
+      description: Retorna la lista y especificaciones técnicas de los sensores y plataformas satelitales soportados (MODIS Terra/Aqua y VIIRS SNPP/NOAA-20/NOAA-21), incluyendo resoluciones espaciales y bandas espectrales.
+      operationId: getSensorsMetadata
+      responses:
+        "200":
+          description: Lista de sensores satelitales configurados
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SensorInfo"
+              examples:
+                sensorsListExample:
+                  summary: Sensores MODIS y VIIRS
+                  value:
+                    - name: MODIS
+                      platform: Terra (EOS AM-1) / Aqua (EOS PM-1)
+                      resolution_m: 1000
+                      start_date: "2000-11-01"
+                      status: operational
+                      agency: NASA
+                      bands:
+                        - "Banda 21 (3.929-3.989 µm, alta saturación hasta 500 K)"
+                        - "Banda 22 (3.929-3.989 µm, baja saturación hasta 331 K)"
+                        - "Banda 31 (10.780-11.280 µm, canal infrarrojo térmico)"
+                      description: "Espectrorradiómetro de imágenes de resolución moderada con serie histórica continua de más de dos décadas."
+                    - name: VIIRS
+                      platform: Suomi-NPP / NOAA-20 (JPSS-1) / NOAA-21 (JPSS-2)
+                      resolution_m: 375
+                      start_date: "2012-01-19"
+                      status: operational
+                      agency: NASA / NOAA
+                      bands:
+                        - "Banda I4 (3.55-3.93 µm, canal de imagen infrarrojo medio 375m)"
+                        - "Banda I5 (10.5-12.4 µm, canal de imagen infrarrojo térmico 375m)"
+                        - "Banda M13 (3.97-4.13 µm, canal moderado para estimación de FRP)"
+                      description: "Radiómetro para imágenes infrarrojas visibles con capacidad de detección de focos de menor tamaño y mayor sensibilidad nocturna."
+        "500":
+          description: Error interno del servidor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /meta/data-coverage:
+    get:
+      tags:
+        - meta
+      summary: Cobertura temporal y volumetría de datos
+      description: Resumen estadístico del rango temporal disponible por sensor, total de registros almacenados en PostGIS y límites espaciales (bounding box) de cobertura.
+      operationId: getDataCoverage
+      responses:
+        "200":
+          description: Cobertura temporal y volumétrica de las colecciones FIRMS
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DataCoverage"
+              examples:
+                coverageExample:
+                  summary: Cobertura en Bolivia y Cono Sur
+                  value:
+                    - sensor: MODIS_C6.1
+                      date_range:
+                        start: "2000-11-01"
+                        end: "2026-11-14"
+                      total_records: 4850230
+                      regions_covered:
+                        - Chiquitanía
+                        - Amazonía Boliviana
+                        - Pantanal
+                        - Chaco
+                      last_ingested_date: "2026-11-14T12:00:00Z"
+                      spatial_extent_bbox: "-69.64,-22.90,-57.45,-9.67"
+                    - sensor: VIIRS_375M
+                      date_range:
+                        start: "2012-01-20"
+                        end: "2026-11-14"
+                      total_records: 18450120
+                      regions_covered:
+                        - Chiquitanía
+                        - Amazonía Boliviana
+                        - Pantanal
+                        - Chaco
+                      last_ingested_date: "2026-11-14T12:00:00Z"
+                      spatial_extent_bbox: "-69.64,-22.90,-57.45,-9.67"
+        "500":
+          description: Error interno al consultar coberturas
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /ingest/firms:
+    post:
+      tags:
+        - ingest
+      summary: Iniciar tarea de ingesta de datos de NASA FIRMS
+      description: Inicia un trabajo asíncrono para descargar y cargar focos térmicos (MODIS/VIIRS) desde el servicio web de NASA FIRMS o procesar un archivo CSV previamente cargado. Si `auto_harmonize` es verdadero, ejecuta de inmediato el pipeline ST-DBSCAN.
+      operationId: triggerFirmsIngest
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      requestBody:
+        required: true
+        description: Parámetros de configuración de la ingesta
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IngestFirmsRequest"
+            examples:
+              apiIngestExample:
+                summary: Ingesta desde API FIRMS para Chiquitanía
+                value:
+                  sensor: BOTH
+                  date_start: "2024-08-01"
+                  date_end: "2024-08-31"
+                  source_type: firms_api
+                  firms_map_key: "f7a8b9c0d1e2f3a4b5c6d7e8f9"
+                  auto_harmonize: true
+                  region_id: reg_bo_chiquitania
+      responses:
+        "202":
+          description: Tarea de ingesta aceptada y encolada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IngestionJob"
+              examples:
+                jobAcceptedExample:
+                  summary: Tarea creada exitosamente
+                  value:
+                    job_id: "d3b07384-d113-4f9e-a81d-b2b918a09141"
+                    status: pending
+                    sensor: BOTH
+                    date_range:
+                      start: "2024-08-01"
+                      end: "2024-08-31"
+                    progress: 0.0
+                    records_processed: 0
+                    records_inserted_modis: 0
+                    records_inserted_viirs: 0
+                    harmonized_events_created: 0
+                    created_at: "2026-11-14T15:10:00Z"
+                    finished_at: null
+                    error_message: null
+        "400":
+          description: Parámetros de solicitud inválidos
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: No autorizado - API Key o Token Bearer requerido
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /ingest/status:
+    get:
+      tags:
+        - ingest
+      summary: Listar historial de tareas de ingesta
+      description: Retorna la lista paginada de tareas de ingesta ejecutadas recientemente en el sistema, con sus estados y métricas de procesamiento.
+      operationId: listIngestionJobs
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/limitParam"
+        - $ref: "#/components/parameters/offsetParam"
+        - name: status
+          in: query
+          required: false
+          description: Filtrar por estado de ejecución de la tarea
+          schema:
+            type: string
+            enum: [pending, downloading, processing, harmonizing, completed, failed]
+          example: completed
+      responses:
+        "200":
+          description: Lista paginada de tareas de ingesta
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedIngestionJobs"
+        "401":
+          description: No autorizado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /ingest/status/{job_id}:
+    get:
+      tags:
+        - ingest
+      summary: Consultar estado de una tarea de ingesta
+      description: Obtiene el progreso detallado, cantidad de registros procesados por sensor y posibles errores de una tarea de ingesta específica mediante su identificador UUID.
+      operationId: getIngestionJobStatus
+      parameters:
+        - $ref: "#/components/parameters/jobIdPathParam"
+      responses:
+        "200":
+          description: Detalle del trabajo de ingesta
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IngestionJob"
+              examples:
+                jobStatusCompleted:
+                  summary: Tarea completada con éxito
+                  value:
+                    job_id: "d3b07384-d113-4f9e-a81d-b2b918a09141"
+                    status: completed
+                    sensor: BOTH
+                    date_range:
+                      start: "2024-08-01"
+                      end: "2024-08-31"
+                    progress: 100.0
+                    records_processed: 42150
+                    records_inserted_modis: 8430
+                    records_inserted_viirs: 33720
+                    harmonized_events_created: 5120
+                    created_at: "2026-11-14T14:00:00Z"
+                    finished_at: "2026-11-14T14:04:12Z"
+                    error_message: null
+        "404":
+          description: Tarea no encontrada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /hotspots/modis:
+    get:
+      tags:
+        - hotspots
+      summary: Consultar focos de calor crudos de MODIS
+      description: Recupera detecciones térmicas crudas de MODIS C6.1 (1 km) en formato paginado, permitiendo filtros espaciales por BBox, rango de fechas, satélite (Terra o Aqua) y confianza mínima de detección.
+      operationId: getModisHotspots
+      parameters:
+        - $ref: "#/components/parameters/bboxParam"
+        - $ref: "#/components/parameters/dateStartParam"
+        - $ref: "#/components/parameters/dateEndParam"
+        - $ref: "#/components/parameters/confidenceMinParam"
+        - $ref: "#/components/parameters/daynightParam"
+        - $ref: "#/components/parameters/satelliteParam"
+        - $ref: "#/components/parameters/limitParam"
+        - $ref: "#/components/parameters/offsetParam"
+      responses:
+        "200":
+          description: Lista paginada de focos de calor MODIS
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedModisHotspots"
+              examples:
+                modisPageExample:
+                  summary: Focos MODIS en Santa Cruz
+                  value:
+                    total: 1250
+                    limit: 2
+                    offset: 0
+                    data:
+                      - latitude: -16.2902
+                        longitude: -60.9582
+                        brightness: 325.4
+                        scan: 1.2
+                        track: 1.1
+                        acq_date: "2024-08-15"
+                        acq_time: "1745"
+                        satellite: Aqua
+                        confidence: 85
+                        frp: 42.6
+                        daynight: D
+                      - latitude: -16.3015
+                        longitude: -60.9412
+                        brightness: 338.1
+                        scan: 1.2
+                        track: 1.1
+                        acq_date: "2024-08-15"
+                        acq_time: "1745"
+                        satellite: Aqua
+                        confidence: 92
+                        frp: 68.3
+                        daynight: D
+        "400":
+          description: Parámetros de consulta no válidos
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /hotspots/viirs:
+    get:
+      tags:
+        - hotspots
+      summary: Consultar focos de calor crudos de VIIRS (375m)
+      description: Recupera detecciones térmicas de VIIRS 375m (SNPP/NOAA-20/NOAA-21) con soporte para filtrado por temperaturas de brillo I4 (3.75 µm) e I5 (11 µm), niveles de confianza categóricos y filtros geográficos.
+      operationId: getViirsHotspots
+      parameters:
+        - $ref: "#/components/parameters/bboxParam"
+        - $ref: "#/components/parameters/dateStartParam"
+        - $ref: "#/components/parameters/dateEndParam"
+        - name: confidence_min
+          in: query
+          required: false
+          description: Nivel de confianza mínimo para VIIRS
+          schema:
+            type: string
+            enum: [low, nominal, high]
+            default: nominal
+          example: nominal
+        - $ref: "#/components/parameters/daynightParam"
+        - $ref: "#/components/parameters/satelliteParam"
+        - $ref: "#/components/parameters/brightTi4MinParam"
+        - $ref: "#/components/parameters/brightTi4MaxParam"
+        - $ref: "#/components/parameters/limitParam"
+        - $ref: "#/components/parameters/offsetParam"
+      responses:
+        "200":
+          description: Lista paginada de focos de calor VIIRS
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedViirsHotspots"
+              examples:
+                viirsPageExample:
+                  summary: Focos VIIRS en la Chiquitanía
+                  value:
+                    total: 4890
+                    limit: 2
+                    offset: 0
+                    data:
+                      - latitude: -16.2905
+                        longitude: -60.9578
+                        bright_ti4: 345.8
+                        bright_ti5: 298.2
+                        scan: 0.4
+                        track: 0.4
+                        acq_date: "2024-08-15"
+                        acq_time: "1748"
+                        satellite: SNPP
+                        confidence: high
+                        frp: 15.3
+                        daynight: D
+                      - latitude: -16.2932
+                        longitude: -60.9591
+                        bright_ti4: 352.1
+                        bright_ti5: 301.4
+                        scan: 0.4
+                        track: 0.4
+                        acq_date: "2024-08-15"
+                        acq_time: "1748"
+                        satellite: SNPP
+                        confidence: high
+                        frp: 21.8
+                        daynight: D
+        "400":
+          description: Error en parámetros de filtrado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /hotspots/compare:
+    get:
+      tags:
+        - hotspots
+      summary: Comparación cuantitativa MODIS vs VIIRS y 'Efecto 2012'
+      description: Analiza la discrepancia sistemática entre MODIS y VIIRS en un período y área seleccionada, calculando el ratio de sobre-detección (3x-5x), las diferencias en la energía radiativa (FRP) y cuantificando el salto artificial del año 2012.
+      operationId: compareHotspots
+      parameters:
+        - $ref: "#/components/parameters/bboxParam"
+        - $ref: "#/components/parameters/dateStartParam"
+        - $ref: "#/components/parameters/dateEndParam"
+        - $ref: "#/components/parameters/regionIdQueryParam"
+      responses:
+        "200":
+          description: Diagnóstico comparativo y métricas de discrepancia
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HotspotsComparison"
+              examples:
+                chiquitaniaComparisonExample:
+                  summary: Diagnóstico Efecto 2012 en Chiquitanía
+                  value:
+                    bbox: "-62.5,-18.2,-59.8,-15.5"
+                    date_start: "2024-08-01"
+                    date_end: "2024-08-31"
+                    modis_raw_count: 3420
+                    viirs_raw_count: 13180
+                    raw_ratio_viirs_to_modis: 3.85
+                    harmonized_events_count: 2890
+                    modis_mean_frp: 48.2
+                    viirs_mean_frp: 18.6
+                    calibrated_mean_frp: 52.4
+                    clustering_compression_ratio: 78.1
+                    effect_2012_bias_detected: true
+                    analysis_summary: "VIIRS reportó 3.85x más detecciones térmicas que MODIS debido a su pixel de 375m vs 1000m. La armonización redujo la redundancia un 78.1% manteniendo la coherencia energética con la serie histórica 2000-2011."
+        "400":
+          description: Parámetros no válidos
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /harmonized/events:
+    get:
+      tags:
+        - harmonized
+      summary: Listar eventos de incendio armonizados (ST-DBSCAN)
+      description: Recupera eventos de fuego consolidados generados a través de ST-DBSCAN (500-1000m, 3-4h), con geometrías de polígonos envolventes (ConvexHull), índice HFII y áreas calculadas en hectáreas.
+      operationId: getHarmonizedEvents
+      parameters:
+        - $ref: "#/components/parameters/bboxParam"
+        - $ref: "#/components/parameters/dateStartParam"
+        - $ref: "#/components/parameters/dateEndParam"
+        - $ref: "#/components/parameters/hfiiMinParam"
+        - $ref: "#/components/parameters/hfiiMaxParam"
+        - $ref: "#/components/parameters/limitParam"
+        - $ref: "#/components/parameters/offsetParam"
+      responses:
+        "200":
+          description: Colección paginada de eventos armonizados
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedHarmonizedEvents"
+              examples:
+                eventsListExample:
+                  summary: Eventos en San Ignacio de Velasco
+                  value:
+                    total: 512
+                    limit: 1
+                    offset: 0
+                    data:
+                      - event_id: "evt_bo_20240815_chiquitania_0042"
+                        hfii_score: 78.4
+                        calibrated_frp: 112.5
+                        modis_count: 2
+                        viirs_count: 8
+                        start_time: "2024-08-15T14:30:00Z"
+                        end_time: "2024-08-15T18:15:00Z"
+                        area_ha: 345.2
+                        confidence_level: high
+                        cluster_algorithm: "ST-DBSCAN (eps_geo=750m, eps_time=3.5h, min_samples=2)"
+                        region_id: reg_bo_chiquitania
+                        geometry:
+                          type: Polygon
+                          coordinates:
+                            - - [-60.962, -16.295]
+                              - [-60.952, -16.295]
+                              - [-60.952, -16.287]
+                              - [-60.962, -16.287]
+                              - [-60.962, -16.295]
+        "400":
+          description: Filtros espaciales o temporales erróneos
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /harmonized/events/{event_id}:
+    get:
+      tags:
+        - harmonized
+      summary: Detalle completo de un evento de fuego armonizado
+      description: Obtiene la información exhaustiva de un evento unificado, incluyendo la huella poligonal GeoJSON de alta precisión, desglose de detecciones de origen de MODIS y VIIRS, e historial de propagación térmica.
+      operationId: getHarmonizedEventById
+      parameters:
+        - $ref: "#/components/parameters/eventIdPathParam"
+      responses:
+        "200":
+          description: Evento armonizado encontrado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HarmonizedEvent"
+        "404":
+          description: Evento no encontrado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /harmonized/h3:
+    get:
+      tags:
+        - harmonized
+      summary: Malla hexagonal Uber H3 de densidad de fuego
+      description: Agrupa las detecciones armonizadas en hexágonos Uber H3 para visualización continua y de alto rendimiento en Deck.gl y Mapbox GL JS. Calcula densidades de potencia radiativa por km² y valores promedio de HFII.
+      operationId: getHarmonizedH3Grid
+      parameters:
+        - $ref: "#/components/parameters/resolutionParam"
+        - $ref: "#/components/parameters/dateParam"
+        - $ref: "#/components/parameters/regionIdQueryParam"
+      responses:
+        "200":
+          description: Malla de celdas H3 activas con densidades calculadas
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/H3Cell"
+              examples:
+                h3CellsExample:
+                  summary: Celdas H3 Resolución 8 en Chiquitanía
+                  value:
+                    - h3_index: "8867a5b6d7fffff"
+                      resolution: 8
+                      acq_date: "2024-08-15"
+                      is_active: true
+                      harmonized_frp_density: 14.85
+                      event_count: 3
+                      hfii_mean: 64.2
+                      center_lat: -16.3214
+                      center_lng: -60.8942
+                    - h3_index: "8867a5b6d5fffff"
+                      resolution: 8
+                      acq_date: "2024-08-15"
+                      is_active: true
+                      harmonized_frp_density: 22.40
+                      event_count: 5
+                      hfii_mean: 79.1
+                      center_lat: -16.3350
+                      center_lng: -60.8810
+        "400":
+          description: Parámetros H3 inválidos
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /harmonized/statistics:
+    get:
+      tags:
+        - harmonized
+      summary: Estadísticas agregadas de fuego armonizado
+      description: Calcula métricas consolidadas sobre el área total quemada, energía térmica acumulada (PJ), distribución por clases de severidad HFII y comparativa con líneas de base históricas para una región y rango temporal.
+      operationId: getHarmonizedStatistics
+      parameters:
+        - $ref: "#/components/parameters/regionIdQueryParam"
+        - $ref: "#/components/parameters/dateStartParam"
+        - $ref: "#/components/parameters/dateEndParam"
+      responses:
+        "200":
+          description: Estadísticas consolidadas del régimen de quemas
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HarmonizedStatistics"
+              examples:
+                statsSummaryExample:
+                  summary: Estadísticas Chiquitanía Agosto 2024
+                  value:
+                    region_id: reg_bo_chiquitania
+                    date_range:
+                      start: "2024-08-01"
+                      end: "2024-08-31"
+                    total_events: 2890
+                    total_burned_area_ha: 145200.5
+                    avg_hfii: 68.4
+                    max_hfii: 96.8
+                    total_calibrated_energy_pj: 12.4
+                    daily_average_events: 93.2
+                    peak_day: "2024-08-18"
+                    land_cover_breakdown:
+                      bosque_seco_chiquitano_pct: 54.2
+                      cerrado_sabana_pct: 31.8
+                      pastizales_antropicos_pct: 12.0
+                      humedales_pct: 2.0
+        "400":
+          description: Parámetros incorrectos
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /calendar/heatmap:
+    get:
+      tags:
+        - calendar
+      summary: Matriz y mapa de calor anual del Calendario de Quemas
+      description: Proporciona la matriz de actividad diaria/semanal a través de los años (2000-2026), facilitando el análisis visual tipo GitHub-commit heatmap para identificar el inicio, pico y cese de las temporadas de quemas sin distorsión por cambio de sensor.
+      operationId: getCalendarHeatmap
+      parameters:
+        - $ref: "#/components/parameters/regionIdQueryParam"
+        - $ref: "#/components/parameters/yearStartParam"
+        - $ref: "#/components/parameters/yearEndParam"
+        - $ref: "#/components/parameters/aggregationParam"
+      responses:
+        "200":
+          description: Matriz temporal para visualización en mapa de calor
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CalendarEntry"
+              examples:
+                calendarHeatmapExample:
+                  summary: Muestras del Calendario de Quemas
+                  value:
+                    - date: "2024-08-15"
+                      region_id: reg_bo_chiquitania
+                      total_events: 48
+                      total_area_ha: 3820.5
+                      avg_hfii: 71.3
+                      total_calibrated_frp: 1890.4
+                      anomaly_zscore: 2.85
+                      is_anomaly: true
+                      baseline_mean_events: 18.2
+                      baseline_std_events: 10.4
+                    - date: "2024-08-16"
+                      region_id: reg_bo_chiquitania
+                      total_events: 35
+                      total_area_ha: 2410.0
+                      avg_hfii: 65.8
+                      total_calibrated_frp: 1340.2
+                      anomaly_zscore: 1.61
+                      is_anomaly: false
+                      baseline_mean_events: 18.2
+                      baseline_std_events: 10.4
+        "400":
+          description: Error en parámetros del calendario
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /calendar/timeline:
+    get:
+      tags:
+        - calendar
+      summary: Serie temporal normalizada multi-anual (2000-2026)
+      description: Genera una serie continua que demuestra la eliminación del salto artificial de 2012 mediante la curva unificada de eventos armonizados vs la suma cruda desbalanceada.
+      operationId: getCalendarTimeline
+      parameters:
+        - $ref: "#/components/parameters/regionIdQueryParam"
+        - $ref: "#/components/parameters/aggregationParam"
+      responses:
+        "200":
+          description: Serie de tiempo histórica normalizada
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TimelinePoint"
+              examples:
+                timelinePointsExample:
+                  summary: Muestra de serie temporal pre y post 2012
+                  value:
+                    - timestamp: "2011-09-01T00:00:00Z"
+                      period: "2011-09"
+                      modis_count: 4210
+                      viirs_count: 0
+                      raw_sum: 4210
+                      harmonized_count: 3950
+                      total_area_ha: 198000.0
+                      mean_hfii: 62.4
+                    - timestamp: "2012-09-01T00:00:00Z"
+                      period: "2012-09"
+                      modis_count: 4350
+                      viirs_count: 16800
+                      raw_sum: 21150
+                      harmonized_count: 4120
+                      total_area_ha: 205000.0
+                      mean_hfii: 63.8
+        "400":
+          description: Parámetros de agregación inválidos
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /calendar/anomalies:
+    get:
+      tags:
+        - calendar
+      summary: Detección estadística de anomalías y temporadas extremas
+      description: Identifica períodos donde la actividad de fuego excede significativamente la variabilidad natural climatológica histórica, utilizando umbrales de Z-score sobre la serie temporal armonizada.
+      operationId: getCalendarAnomalies
+      parameters:
+        - $ref: "#/components/parameters/regionIdQueryParam"
+        - $ref: "#/components/parameters/thresholdZscoreParam"
+      responses:
+        "200":
+          description: Lista de anomalías térmicas y eventos extremos detectados
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AnomalyEntry"
+              examples:
+                anomaliesListExample:
+                  summary: Anomalías récord detectadas en Chiquitanía
+                  value:
+                    - date: "2019-08-25"
+                      region_id: reg_bo_chiquitania
+                      observed_events: 184
+                      expected_events: 32.5
+                      z_score: 4.82
+                      deviation_percentage: 466.1
+                      severity: extreme
+                      description: "Megaincendio histórico de la Chiquitanía 2019 superó en 4.82 desviaciones estándar el promedio climatológico."
+                    - date: "2024-08-18"
+                      region_id: reg_bo_chiquitania
+                      observed_events: 142
+                      expected_events: 34.1
+                      z_score: 3.45
+                      deviation_percentage: 316.4
+                      severity: high
+                      description: "Pico de incendios adelantado debido a sequía severa en el Bosque Seco Chiquitano."
+        "400":
+          description: Parámetros de anomalía inválidos
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /regions:
+    get:
+      tags:
+        - regions
+      summary: Listar regiones geográficas y ecorregiones
+      description: Obtiene las delimitaciones vectoriales y administrativas disponibles en la plataforma para su uso en filtros y análisis espacial (Chiquitanía, Amazonía, Pantanal, etc.).
+      operationId: listRegions
+      parameters:
+        - $ref: "#/components/parameters/limitParam"
+        - $ref: "#/components/parameters/offsetParam"
+      responses:
+        "200":
+          description: Lista de regiones disponibles
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Region"
+              examples:
+                regionsListExample:
+                  summary: Ecorregiones de Bolivia
+                  value:
+                    - id: reg_bo_chiquitania
+                      name: "Chiquitanía - Bosque Seco Chiquitano"
+                      region_type: ecoregion
+                      department: "Santa Cruz"
+                      country: "Bolivia"
+                      area_km2: 200000.0
+                      geometry:
+                        type: Polygon
+                        coordinates:
+                          - - [-62.5, -18.2]
+                            - [-58.0, -18.2]
+                            - [-58.0, -14.0]
+                            - [-62.5, -14.0]
+                            - [-62.5, -18.2]
+                    - id: reg_bo_pantanal
+                      name: "Pantanal Boliviano"
+                      region_type: ecoregion
+                      department: "Santa Cruz"
+                      country: "Bolivia"
+                      area_km2: 32000.0
+                      geometry:
+                        type: Polygon
+                        coordinates:
+                          - - [-59.0, -19.5]
+                            - [-57.5, -19.5]
+                            - [-57.5, -16.5]
+                            - [-59.0, -16.5]
+                            - [-59.0, -19.5]
+        "400":
+          description: Parámetros de paginación inválidos
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /regions/{region_id}:
+    get:
+      tags:
+        - regions
+      summary: Detalle y polígono GeoJSON de una región
+      description: Recupera la información de identificación, tipo de región, superficie total en kilómetros cuadrados y geometría espacial GeoJSON del área indicada.
+      operationId: getRegionById
+      parameters:
+        - $ref: "#/components/parameters/regionIdPathParam"
+      responses:
+        "200":
+          description: Detalle de la región encontrada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Region"
+        "404":
+          description: Región no encontrada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /regions/{region_id}/stats:
+    get:
+      tags:
+        - regions
+      summary: Perfil y estadísticas del régimen de fuego de una región
+      description: "Proporciona la síntesis histórica del régimen de incendios en la región: mes de máxima actividad, tendencias multianuales, área promedio quemada y cuantificación local del Efecto 2012."
+      operationId: getRegionStats
+      parameters:
+        - $ref: "#/components/parameters/regionIdPathParam"
+      responses:
+        "200":
+          description: Resumen estadístico histórico de la región
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegionStats"
+              examples:
+                chiquitaniaStatsExample:
+                  summary: Perfil histórico Chiquitanía
+                  value:
+                    region_id: reg_bo_chiquitania
+                    region_name: "Chiquitanía - Bosque Seco Chiquitano"
+                    total_events: 64280
+                    total_area_ha: 3214000.5
+                    avg_hfii: 61.2
+                    peak_month: "Septiembre"
+                    peak_month_index: 9
+                    trend: increasing
+                    effect_2012_discrepancy_factor: 3.42
+                    historical_years_covered: 26
+        "404":
+          description: Región no encontrada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /export/geojson:
+    get:
+      tags:
+        - export
+      summary: Exportar eventos armonizados en formato GeoJSON
+      description: Descarga las geometrías poligonales de huella de fuego y atributos completos de los eventos unificados en formato estándar GeoJSON FeatureCollection, compatible con GIS de escritorio (QGIS, ArcGIS).
+      operationId: exportGeoJson
+      parameters:
+        - $ref: "#/components/parameters/bboxParam"
+        - $ref: "#/components/parameters/dateStartParam"
+        - $ref: "#/components/parameters/dateEndParam"
+      responses:
+        "200":
+          description: Archivo GeoJSON FeatureCollection con eventos armonizados
+          content:
+            application/geo+json:
+              schema:
+                $ref: "#/components/schemas/GeoJSONFeatureCollection"
+              examples:
+                featureCollectionExample:
+                  summary: Colección GeoJSON
+                  value:
+                    type: FeatureCollection
+                    features:
+                      - type: Feature
+                        id: "evt_bo_20240815_0042"
+                        geometry:
+                          type: Polygon
+                          coordinates:
+                            - - [-60.962, -16.295]
+                              - [-60.952, -16.295]
+                              - [-60.952, -16.287]
+                              - [-60.962, -16.287]
+                              - [-60.962, -16.295]
+                        properties:
+                          event_id: "evt_bo_20240815_0042"
+                          hfii_score: 78.4
+                          calibrated_frp_mw: 112.5
+                          modis_points: 2
+                          viirs_points: 8
+                          area_ha: 345.2
+                          date: "2024-08-15"
+        "400":
+          description: Bounding box o rango temporal erróneo
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /export/csv:
+    get:
+      tags:
+        - export
+      summary: Exportar datos de focos armonizados o crudos en formato tabular CSV
+      description: Genera un archivo CSV estructurado con todas las variables astronómicas y espectrales de FIRMS enriquecidas con clúster ST-DBSCAN e índice HFII.
+      operationId: exportCsv
+      parameters:
+        - $ref: "#/components/parameters/bboxParam"
+        - $ref: "#/components/parameters/dateStartParam"
+        - $ref: "#/components/parameters/dateEndParam"
+        - name: dataset
+          in: query
+          required: false
+          description: Tipo de conjunto de datos a descargar
+          schema:
+            type: string
+            enum: [harmonized_events, modis_raw, viirs_raw, combined_all]
+            default: harmonized_events
+          example: harmonized_events
+      responses:
+        "200":
+          description: Archivo tabular CSV con delimitación por comas
+          content:
+            text/csv:
+              schema:
+                type: string
+                format: binary
+              example: "event_id,acq_date,start_time,end_time,center_lat,center_lon,area_ha,hfii_score,calibrated_frp,modis_count,viirs_count\nevt_001,2024-08-15,14:30:00,18:15:00,-16.291,-60.955,345.2,78.4,112.5,2,8"
+        "400":
+          description: Parámetros de exportación inválidos
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /export/pdf:
+    post:
+      tags:
+        - export
+      summary: Generar informe técnico ejecutivo en PDF
+      description: Genera un informe automatizado en formato PDF que compila gráficos del calendario de quemas, cartografía de severidad HFII, análisis de anomalías e impactos ecológicos para autoridades de toma de decisiones.
+      operationId: exportPdfReport
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      requestBody:
+        required: true
+        description: Parámetros para la elaboración del reporte PDF
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExportPdfRequest"
+            examples:
+              pdfRequestExample:
+                summary: Reporte mensual de incendios Chiquitanía
+                value:
+                  region_id: reg_bo_chiquitania
+                  date_start: "2024-08-01"
+                  date_end: "2024-08-31"
+                  report_title: "Informe Técnico de Incendios Forestales - Bosque Seco Chiquitano"
+                  include_charts: true
+                  include_map: true
+                  include_anomalies: true
+                  author: "Sistema PyrosHarmonizer - Gobernación de Santa Cruz"
+                  language: es
+      responses:
+        "200":
+          description: Reporte PDF generado exitosamente
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExportPdfResponse"
+              examples:
+                pdfResponseExample:
+                  summary: Reporte listo para descarga
+                  value:
+                    job_id: "pdf_f9a8b7c6-1234-5678-abcd-ef0123456789"
+                    status: completed
+                    download_url: "https://pyrosharmonizer.railway.app/api/v1/export/download/pdf_f9a8b7c6.pdf"
+                    file_size_bytes: 4892014
+                    expires_at: "2026-11-15T15:00:00Z"
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        "400":
+          description: Parámetros de generación de reporte erróneos
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: No autorizado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: Clave de autenticación para servicios de ingesta masiva y generación de reportes.
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Token web JSON (JWT) para analistas geoespaciales y operadores del sistema.
+
+  parameters:
+    bboxParam:
+      name: bbox
+      in: query
+      required: false
+      description: Caja delimitadora en formato WGS84 (minLng,minLat,maxLng,maxLat)
+      schema:
+        $ref: "#/components/schemas/BBox"
+      example: "-64.5,-19.5,-58.0,-14.0"
+
+    dateStartParam:
+      name: date_start
+      in: query
+      required: false
+      description: Fecha inicial de filtrado (formato YYYY-MM-DD)
+      schema:
+        type: string
+        format: date
+      example: "2024-08-01"
+
+    dateEndParam:
+      name: date_end
+      in: query
+      required: false
+      description: Fecha final de filtrado (formato YYYY-MM-DD)
+      schema:
+        type: string
+        format: date
+      example: "2024-08-31"
+
+    confidenceMinParam:
+      name: confidence_min
+      in: query
+      required: false
+      description: Porcentaje mínimo de confianza para detección MODIS (0-100)
+      schema:
+        type: integer
+        minimum: 0
+        maximum: 100
+        default: 30
+      example: 30
+
+    daynightParam:
+      name: daynight
+      in: query
+      required: false
+      description: Filtro de detección diurna o nocturna
+      schema:
+        type: string
+        enum: [D, N, ALL]
+        default: ALL
+      example: D
+
+    satelliteParam:
+      name: satellite
+      in: query
+      required: false
+      description: Plataforma satelital de adquisición
+      schema:
+        type: string
+        enum: [Terra, Aqua, SNPP, NOAA-20, NOAA-21, ALL]
+        default: ALL
+      example: Aqua
+
+    brightTi4MinParam:
+      name: bright_ti4_min
+      in: query
+      required: false
+      description: Temperatura de brillo mínima en banda I4 de VIIRS (Kelvin)
+      schema:
+        type: number
+        format: float
+        minimum: 200.0
+        maximum: 500.0
+      example: 320.0
+
+    brightTi4MaxParam:
+      name: bright_ti4_max
+      in: query
+      required: false
+      description: Temperatura de brillo máxima en banda I4 de VIIRS (Kelvin)
+      schema:
+        type: number
+        format: float
+        minimum: 200.0
+        maximum: 500.0
+      example: 380.0
+
+    hfiiMinParam:
+      name: hfii_min
+      in: query
+      required: false
+      description: Índice Armonizado de Intensidad de Fuego mínimo (0-100)
+      schema:
+        type: number
+        format: float
+        minimum: 0.0
+        maximum: 100.0
+        default: 0.0
+      example: 50.0
+
+    hfiiMaxParam:
+      name: hfii_max
+      in: query
+      required: false
+      description: Índice Armonizado de Intensidad de Fuego máximo (0-100)
+      schema:
+        type: number
+        format: float
+        minimum: 0.0
+        maximum: 100.0
+        default: 100.0
+      example: 100.0
+
+    resolutionParam:
+      name: resolution
+      in: query
+      required: false
+      description: "Nivel de resolución espacial hexagonal Uber H3 (6: ~36 km², 7: ~5.1 km², 8: ~0.74 km², 9: ~0.1 km²)"
+      schema:
+        type: integer
+        minimum: 5
+        maximum: 10
+        default: 8
+      example: 8
+
+    dateParam:
+      name: date
+      in: query
+      required: false
+      description: Fecha específica para la visualización de celdas H3 (YYYY-MM-DD)
+      schema:
+        type: string
+        format: date
+      example: "2024-08-15"
+
+    yearStartParam:
+      name: year_start
+      in: query
+      required: false
+      description: Año inicial para el calendario de quemas (desde 2000)
+      schema:
+        type: integer
+        minimum: 2000
+        maximum: 2026
+        default: 2000
+      example: 2010
+
+    yearEndParam:
+      name: year_end
+      in: query
+      required: false
+      description: Año final para el calendario de quemas (hasta 2026)
+      schema:
+        type: integer
+        minimum: 2000
+        maximum: 2026
+        default: 2026
+      example: 2024
+
+    aggregationParam:
+      name: aggregation
+      in: query
+      required: false
+      description: Unidad temporal de agregación
+      schema:
+        type: string
+        enum: [day, week, month, year]
+        default: month
+      example: month
+
+    thresholdZscoreParam:
+      name: threshold_zscore
+      in: query
+      required: false
+      description: Umbral de desviación estándar (Z-score) para clasificar una anomalía
+      schema:
+        type: number
+        format: float
+        default: 2.0
+      example: 2.5
+
+    limitParam:
+      name: limit
+      in: query
+      required: false
+      description: Cantidad máxima de registros por página
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 5000
+        default: 100
+      example: 100
+
+    offsetParam:
+      name: offset
+      in: query
+      required: false
+      description: Desplazamiento inicial para paginación
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+      example: 0
+
+    regionIdPathParam:
+      name: region_id
+      in: path
+      required: true
+      description: Identificador único de la región o ecorregión
+      schema:
+        type: string
+      example: reg_bo_chiquitania
+
+    regionIdQueryParam:
+      name: region_id
+      in: query
+      required: false
+      description: Filtrar por identificador de región o ecorregión
+      schema:
+        type: string
+      example: reg_bo_chiquitania
+
+    jobIdPathParam:
+      name: job_id
+      in: path
+      required: true
+      description: Identificador UUID de la tarea de procesamiento
+      schema:
+        type: string
+        format: uuid
+      example: "d3b07384-d113-4f9e-a81d-b2b918a09141"
+
+    eventIdPathParam:
+      name: event_id
+      in: path
+      required: true
+      description: Identificador único del evento de fuego armonizado
+      schema:
+        type: string
+      example: "evt_bo_20240815_chiquitania_0042"
+
+  schemas:
+    ModisHotspot:
+      type: object
+      description: Detección térmica individual del instrumento MODIS (C6.1, resolución de 1 km)
+      required:
+        - latitude
+        - longitude
+        - brightness
+        - scan
+        - track
+        - acq_date
+        - acq_time
+        - satellite
+        - confidence
+        - frp
+        - daynight
+      properties:
+        latitude:
+          type: number
+          format: float
+          description: Latitud en grados decimales (WGS84 EPSG:4326)
+          example: -16.2902
+        longitude:
+          type: number
+          format: float
+          description: Longitud en grados decimales (WGS84 EPSG:4326)
+          example: -60.9582
+        brightness:
+          type: number
+          format: float
+          description: Temperatura de brillo del píxel en Kelvin medida en el canal 21/22 (3.9 µm)
+          example: 325.4
+        scan:
+          type: number
+          format: float
+          description: Dimensión del píxel en la dirección transversal del barrido (km)
+          example: 1.2
+        track:
+          type: number
+          format: float
+          description: Dimensión del píxel a lo largo de la trayectoria del satélite (km)
+          example: 1.1
+        acq_date:
+          type: string
+          format: date
+          description: Fecha de adquisición UTC
+          example: "2024-08-15"
+        acq_time:
+          type: string
+          description: Hora de adquisición UTC en formato HHMM de 4 dígitos
+          example: "1745"
+        satellite:
+          type: string
+          enum: [Terra, Aqua]
+          description: Satélite plataforma (Terra o Aqua)
+          example: Aqua
+        confidence:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: Calidad de la detección estimada por el algoritmo MODIS (0-100%)
+          example: 85
+        frp:
+          type: number
+          format: float
+          description: Potencia radiativa del fuego (Fire Radiative Power) en Megawatts (MW)
+          example: 42.6
+        daynight:
+          type: string
+          enum: [D, N]
+          description: Indicador de paso diurno (D) o nocturno (N)
+          example: D
+        instrument:
+          type: string
+          description: Nombre del instrumento detector
+          default: MODIS
+          example: MODIS
+        version:
+          type: string
+          description: Versión de la colección FIRMS procesada
+          example: "6.1NRT"
+
+    ViirsHotspot:
+      type: object
+      description: Detección térmica individual del instrumento VIIRS (resolución espacial de 375m)
+      required:
+        - latitude
+        - longitude
+        - bright_ti4
+        - bright_ti5
+        - scan
+        - track
+        - acq_date
+        - acq_time
+        - satellite
+        - confidence
+        - frp
+        - daynight
+      properties:
+        latitude:
+          type: number
+          format: float
+          description: Latitud en grados decimales (WGS84 EPSG:4326)
+          example: -16.2905
+        longitude:
+          type: number
+          format: float
+          description: Longitud en grados decimales (WGS84 EPSG:4326)
+          example: -60.9578
+        bright_ti4:
+          type: number
+          format: float
+          description: Temperatura de brillo del canal de imagen infrarrojo I4 (3.75 µm) en Kelvin
+          example: 345.8
+        bright_ti5:
+          type: number
+          format: float
+          description: Temperatura de brillo del canal de imagen infrarrojo térmico I5 (11.45 µm) en Kelvin
+          example: 298.2
+        scan:
+          type: number
+          format: float
+          description: Dimensión del píxel a lo largo del barrido en km (típicamente 0.32-0.8 km)
+          example: 0.4
+        track:
+          type: number
+          format: float
+          description: Dimensión del píxel a lo largo de la trayectoria en km (típicamente ~0.375 km constante)
+          example: 0.4
+        acq_date:
+          type: string
+          format: date
+          description: Fecha de adquisición UTC
+          example: "2024-08-15"
+        acq_time:
+          type: string
+          description: Hora de adquisición UTC en formato HHMM
+          example: "1748"
+        satellite:
+          type: string
+          enum: [SNPP, NOAA-20, NOAA-21, N, J1, J2]
+          description: Satélite plataforma (Suomi-NPP, NOAA-20 o NOAA-21)
+          example: SNPP
+        confidence:
+          type: string
+          enum: [low, nominal, high]
+          description: Nivel de calidad categórico de la detección VIIRS 375m
+          example: high
+        frp:
+          type: number
+          format: float
+          description: Potencia radiativa del fuego (Fire Radiative Power) en Megawatts (MW)
+          example: 15.3
+        daynight:
+          type: string
+          enum: [D, N]
+          description: Paso diurno (D) o nocturno (N)
+          example: D
+        instrument:
+          type: string
+          default: VIIRS
+          example: VIIRS
+        version:
+          type: string
+          example: "2.0NRT"
+
+    HarmonizedEvent:
+      type: object
+      description: Evento de fuego unificado generado por agrupamiento ST-DBSCAN de detecciones MODIS y VIIRS
+      required:
+        - event_id
+        - hfii_score
+        - calibrated_frp
+        - modis_count
+        - viirs_count
+        - start_time
+        - end_time
+        - area_ha
+        - confidence_level
+        - geometry
+      properties:
+        event_id:
+          type: string
+          description: Identificador alfanumérico único del evento de incendio
+          example: "evt_bo_20240815_chiquitania_0042"
+        hfii_score:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 100.0
+          description: Índice Armonizado de Intensidad de Fuego (HFII), escala normalizada de 0 a 100
+          example: 78.4
+        calibrated_frp:
+          type: number
+          format: float
+          description: Potencia radiativa unificada y calibrada inter-sensores en Megawatts (MW)
+          example: 112.5
+        modis_count:
+          type: integer
+          description: Cantidad de focos térmicos MODIS agrupados en el clúster
+          example: 2
+        viirs_count:
+          type: integer
+          description: Cantidad de focos térmicos VIIRS agrupados en el clúster
+          example: 8
+        start_time:
+          type: string
+          format: date-time
+          description: Marca de tiempo ISO-8601 de la primera detección registrada en el evento
+          example: "2024-08-15T14:30:00Z"
+        end_time:
+          type: string
+          format: date-time
+          description: Marca de tiempo ISO-8601 de la última detección registrada en la ventana del evento
+          example: "2024-08-15T18:15:00Z"
+        area_ha:
+          type: number
+          format: float
+          description: Superficie geográfica estimada de la huella de fuego en hectáreas (ST_ConvexHull / footprint)
+          example: 345.2
+        confidence_level:
+          type: string
+          enum: [low, medium, high, very_high]
+          description: Nivel de certeza del evento armonizado en función de la concurrencia multiespectral
+          example: high
+        cluster_algorithm:
+          type: string
+          description: Algoritmo y parámetros empleados en la fusión espacial
+          example: "ST-DBSCAN (eps_geo=750m, eps_time=3.5h, min_samples=2)"
+        region_id:
+          type: string
+          description: Identificador de la región o ecorregión contenedora
+          example: reg_bo_chiquitania
+        geometry:
+          $ref: "#/components/schemas/GeoJSONGeometry"
+
+    H3Cell:
+      type: object
+      description: Celda hexagonal de la cuadrícula Uber H3 con métricas de fuego armonizado
+      required:
+        - h3_index
+        - resolution
+        - acq_date
+        - is_active
+        - harmonized_frp_density
+      properties:
+        h3_index:
+          type: string
+          description: Índice hexagonal Uber H3 codificado en hexadecimal
+          example: "8867a5b6d7fffff"
+        resolution:
+          type: integer
+          minimum: 0
+          maximum: 15
+          description: Nivel de resolución jerárquica H3
+          example: 8
+        acq_date:
+          type: string
+          format: date
+          description: Fecha de observación satelital
+          example: "2024-08-15"
+        is_active:
+          type: boolean
+          description: Indica si la celda presentó actividad de fuego confirmada
+          example: true
+        harmonized_frp_density:
+          type: number
+          format: float
+          description: Densidad de potencia radiativa armonizada calculada en MW/km²
+          example: 14.85
+        event_count:
+          type: integer
+          description: Cantidad de eventos armonizados contenidos en la celda
+          example: 3
+        hfii_mean:
+          type: number
+          format: float
+          description: Promedio del índice HFII dentro del hexágono
+          example: 64.2
+        center_lat:
+          type: number
+          format: float
+          description: Latitud del centroide hexagonal
+          example: -16.3214
+        center_lng:
+          type: number
+          format: float
+          description: Longitud del centroide hexagonal
+          example: -60.8942
+
+    CalendarEntry:
+      type: object
+      description: Entrada del Calendario de Quemas que representa la actividad diaria consolidada
+      required:
+        - date
+        - region_id
+        - total_events
+        - total_area_ha
+        - avg_hfii
+        - anomaly_zscore
+        - is_anomaly
+      properties:
+        date:
+          type: string
+          format: date
+          description: Fecha del registro en el calendario
+          example: "2024-08-15"
+        region_id:
+          type: string
+          description: Identificador de la región analizada
+          example: reg_bo_chiquitania
+        total_events:
+          type: integer
+          description: Total de eventos de fuego armonizados en el día
+          example: 14
+        total_area_ha:
+          type: number
+          format: float
+          description: Área total estimada afectada en hectáreas
+          example: 1820.5
+        avg_hfii:
+          type: number
+          format: float
+          description: Promedio diario del Índice Armonizado de Intensidad de Fuego (HFII)
+          example: 71.3
+        total_calibrated_frp:
+          type: number
+          format: float
+          description: Sumatoria diaria de FRP calibrado en Megawatts
+          example: 890.4
+        anomaly_zscore:
+          type: number
+          format: float
+          description: Puntuación Z calculada con relación al promedio y variabilidad histórica (2000-2025)
+          example: 2.85
+        is_anomaly:
+          type: boolean
+          description: Bandera que indica si el día califica estadísticamente como una anomalía térmica extrema (Z > 2.0)
+          example: true
+        baseline_mean_events:
+          type: number
+          format: float
+          description: Media histórica climatológica para la misma fecha o semana del año
+          example: 4.2
+        baseline_std_events:
+          type: number
+          format: float
+          description: Desviación estándar histórica climatológica
+          example: 2.1
+
+    Region:
+      type: object
+      description: Entidad geográfica o ecorregión de monitoreo ambiental
+      required:
+        - id
+        - name
+        - region_type
+        - area_km2
+        - geometry
+      properties:
+        id:
+          type: string
+          description: Identificador único de la región
+          example: reg_bo_chiquitania
+        name:
+          type: string
+          description: Nombre descriptivo de la zona
+          example: "Chiquitanía - Bosque Seco Chiquitano"
+        region_type:
+          type: string
+          enum: [ecoregion, department, municipality, protected_area, custom]
+          description: Clasificación tipológica de la región
+          example: ecoregion
+        department:
+          type: string
+          description: Departamento o división administrativa superior
+          example: "Santa Cruz"
+        country:
+          type: string
+          description: País de localización
+          example: "Bolivia"
+        area_km2:
+          type: number
+          format: float
+          description: Extensión territorial en kilómetros cuadrados
+          example: 200000.0
+        geometry:
+          $ref: "#/components/schemas/GeoJSONGeometry"
+
+    RegionStats:
+      type: object
+      description: Síntesis del perfil histórico de incendios de una región geográfica
+      required:
+        - region_id
+        - total_events
+        - total_area_ha
+        - avg_hfii
+        - peak_month
+        - trend
+      properties:
+        region_id:
+          type: string
+          description: Identificador de la región
+          example: reg_bo_chiquitania
+        region_name:
+          type: string
+          description: Nombre de la región
+          example: "Chiquitanía"
+        total_events:
+          type: integer
+          description: Total de eventos de fuego armonizados acumulados en la serie histórica
+          example: 45210
+        total_area_ha:
+          type: number
+          format: float
+          description: Área acumulada total afectada en hectáreas
+          example: 2450120.8
+        avg_hfii:
+          type: number
+          format: float
+          description: Intensidad media de fuego (HFII)
+          example: 58.7
+        peak_month:
+          type: string
+          description: Mes del año con mayor recurrencia e intensidad histórica de fuego
+          example: "Septiembre"
+        peak_month_index:
+          type: integer
+          minimum: 1
+          maximum: 12
+          description: "Número del mes pico (1: Enero, 12: Diciembre)"
+          example: 9
+        trend:
+          type: string
+          enum: [increasing, decreasing, stable, fluctuating]
+          description: Tendencia climatológica observada en los últimos 10 años
+          example: increasing
+        effect_2012_discrepancy_factor:
+          type: number
+          format: float
+          description: Factor de sobrestimación cruda de VIIRS respecto a MODIS antes de la armonización
+          example: 3.42
+        historical_years_covered:
+          type: integer
+          description: Número de años en la serie histórica analizada
+          example: 26
+
+    SensorInfo:
+      type: object
+      description: Especificaciones técnicas de un instrumento de teledetección térmica
+      required:
+        - name
+        - platform
+        - resolution_m
+        - start_date
+        - bands
+      properties:
+        name:
+          type: string
+          description: Acrónimo o nombre del instrumento
+          example: "VIIRS"
+        platform:
+          type: string
+          description: Satélites portadores
+          example: "Suomi-NPP / NOAA-20 / NOAA-21"
+        resolution_m:
+          type: integer
+          description: Resolución espacial nominal en el nadir (metros)
+          example: 375
+        start_date:
+          type: string
+          format: date
+          description: Fecha de inicio de disponibilidad de datos operativos
+          example: "2012-01-19"
+        status:
+          type: string
+          description: Estado operativo actual
+          example: operational
+        agency:
+          type: string
+          description: Agencias operadoras
+          example: "NASA / NOAA"
+        bands:
+          type: array
+          items:
+            type: string
+          description: Canales espectrales utilizados para la detección de anomalías térmicas y cálculo de FRP
+          example:
+            - "I4 (3.74 µm, canal medio térmico 375m)"
+            - "I5 (11.45 µm, canal infrarrojo térmico 375m)"
+            - "M13 (4.05 µm, canal moderado para FRP)"
+        description:
+          type: string
+          description: Descripción técnica detallada del sensor
+          example: "Radiómetro para imágenes infrarrojas con cobertura global diaria y alta sensibilidad nocturna."
+
+    DataCoverage:
+      type: object
+      description: Resumen de cobertura temporal, volumen y extensión espacial por sensor
+      required:
+        - sensor
+        - date_range
+        - total_records
+      properties:
+        sensor:
+          type: string
+          description: Identificador del producto satelital
+          example: "VIIRS_375M"
+        date_range:
+          $ref: "#/components/schemas/DateRange"
+        total_records:
+          type: integer
+          description: Cantidad total de registros de focos de calor almacenados
+          example: 18450120
+        regions_covered:
+          type: array
+          items:
+            type: string
+          description: Lista de ecorregiones monitoreadas
+          example: ["Chiquitanía", "Pantanal", "Amazonía", "Chaco"]
+        last_ingested_date:
+          type: string
+          format: date-time
+          description: Marca de tiempo de la última ingesta ejecutada con éxito
+          example: "2026-11-14T12:00:00Z"
+        spatial_extent_bbox:
+          $ref: "#/components/schemas/BBox"
+
+    IngestionJob:
+      type: object
+      description: Registro de estado y progreso de una tarea de ingesta de datos satelitales
+      required:
+        - job_id
+        - status
+        - sensor
+        - date_range
+        - progress
+        - records_processed
+      properties:
+        job_id:
+          type: string
+          format: uuid
+          description: Identificador único del trabajo
+          example: "d3b07384-d113-4f9e-a81d-b2b918a09141"
+        status:
+          type: string
+          enum: [pending, downloading, processing, harmonizing, completed, failed]
+          description: Estado del ciclo de vida del trabajo
+          example: completed
+        sensor:
+          type: string
+          enum: [MODIS, VIIRS, BOTH]
+          description: Sensor objetivo de la ingesta
+          example: BOTH
+        date_range:
+          $ref: "#/components/schemas/DateRange"
+        progress:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 100.0
+          description: Porcentaje de avance de la tarea (0.0 a 100.0)
+          example: 100.0
+        records_processed:
+          type: integer
+          description: Total de registros leídos y validados
+          example: 42150
+        records_inserted_modis:
+          type: integer
+          description: Focos MODIS insertados en PostGIS
+          example: 8430
+        records_inserted_viirs:
+          type: integer
+          description: Focos VIIRS insertados en PostGIS
+          example: 33720
+        harmonized_events_created:
+          type: integer
+          description: Eventos poligonales generados por ST-DBSCAN
+          example: 5120
+        created_at:
+          type: string
+          format: date-time
+          description: Fecha y hora de creación de la tarea
+          example: "2026-11-14T14:00:00Z"
+        finished_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Fecha y hora de finalización
+          example: "2026-11-14T14:04:12Z"
+        error_message:
+          type: string
+          nullable: true
+          description: Mensaje de error descriptivo en caso de fallo
+          example: null
+
+    BBox:
+      type: string
+      pattern: '^[-+]?\\d+(\\.\\d+)?,[-+]?\\d+(\\.\\d+)?,[-+]?\\d+(\\.\\d+)?,[-+]?\\d+(\\.\\d+)?$'
+      description: Coordenadas geográficas de la caja delimitadora en formato minLng,minLat,maxLng,maxLat (WGS84)
+      example: "-64.5,-19.5,-58.0,-14.0"
+
+    PaginatedResponse:
+      type: object
+      description: Estructura genérica para respuestas paginadas
+      required:
+        - total
+        - limit
+        - offset
+        - data
+      properties:
+        total:
+          type: integer
+          description: Cantidad total de registros que coinciden con los filtros
+          example: 1250
+        limit:
+          type: integer
+          description: Límite de elementos solicitados por página
+          example: 100
+        offset:
+          type: integer
+          description: Desplazamiento inicial
+          example: 0
+        data:
+          type: array
+          items:
+            type: object
+          description: Lista de elementos devueltos
+
+    PaginatedModisHotspots:
+      allOf:
+        - $ref: "#/components/schemas/PaginatedResponse"
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: "#/components/schemas/ModisHotspot"
+
+    PaginatedViirsHotspots:
+      allOf:
+        - $ref: "#/components/schemas/PaginatedResponse"
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: "#/components/schemas/ViirsHotspot"
+
+    PaginatedHarmonizedEvents:
+      allOf:
+        - $ref: "#/components/schemas/PaginatedResponse"
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: "#/components/schemas/HarmonizedEvent"
+
+    PaginatedIngestionJobs:
+      allOf:
+        - $ref: "#/components/schemas/PaginatedResponse"
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: "#/components/schemas/IngestionJob"
+
+    GeoJSONGeometry:
+      type: object
+      description: Geometría espacial estándar GeoJSON (Point, Polygon, MultiPolygon)
+      required:
+        - type
+        - coordinates
+      properties:
+        type:
+          type: string
+          enum: [Point, MultiPoint, LineString, MultiLineString, Polygon, MultiPolygon]
+          description: Tipo de geometría espacial
+          example: Polygon
+        coordinates:
+          type: array
+          items: {}
+          description: Coordenadas del objeto geométrico según especificación RFC 7946
+          example:
+            - - [-60.962, -16.295]
+              - [-60.952, -16.295]
+              - [-60.952, -16.287]
+              - [-60.962, -16.287]
+              - [-60.962, -16.295]
+
+    GeoJSONFeature:
+      type: object
+      description: Objeto Feature según la especificación RFC 7946 GeoJSON
+      required:
+        - type
+        - geometry
+        - properties
+      properties:
+        type:
+          type: string
+          enum: [Feature]
+          example: Feature
+        id:
+          type: string
+          example: "feat_001"
+        geometry:
+          $ref: "#/components/schemas/GeoJSONGeometry"
+        properties:
+          type: object
+          description: Atributos y métricas del evento o elemento espacial
+          example:
+            event_id: "evt_bo_20240815_chiquitania_0042"
+            hfii_score: 78.4
+            area_ha: 345.2
+            date: "2024-08-15"
+
+    GeoJSONFeatureCollection:
+      type: object
+      description: Colección de objetos Feature según la especificación RFC 7946 GeoJSON
+      required:
+        - type
+        - features
+      properties:
+        type:
+          type: string
+          enum: [FeatureCollection]
+          example: FeatureCollection
+        features:
+          type: array
+          items:
+            $ref: "#/components/schemas/GeoJSONFeature"
+        properties:
+          type: object
+          nullable: true
+          description: Metadatos globales opcionales de la colección
+
+    ErrorResponse:
+      type: object
+      description: Estructura estándar de retorno ante errores de validación o fallos de ejecución
+      required:
+        - status_code
+        - error
+        - message
+        - timestamp
+      properties:
+        status_code:
+          type: integer
+          description: Código numérico HTTP de estado
+          example: 400
+        error:
+          type: string
+          description: Razón o categoría del error
+          example: "Bad Request"
+        message:
+          type: string
+          description: Explicación amigable del problema
+          example: "Parámetro 'bbox' no válido. Formato esperado: minLng,minLat,maxLng,maxLat"
+        details:
+          type: object
+          nullable: true
+          description: Detalles técnicos adicionales o errores de campo
+          example:
+            param: bbox
+            received: "invalid_bbox_string"
+        timestamp:
+          type: string
+          format: date-time
+          description: Marca de tiempo en la que ocurrió el incidente
+          example: "2026-11-14T15:00:00Z"
+        path:
+          type: string
+          description: Ruta del endpoint que generó el error
+          example: "/api/v1/hotspots/modis"
+
+    HealthResponse:
+      type: object
+      description: Informe del estado operativo de los microservicios y bases de datos
+      required:
+        - status
+        - version
+        - uptime
+        - db_connected
+        - last_ingestion
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+          description: Estado global de salud
+          example: healthy
+        version:
+          type: string
+          description: Versión de la API PyrosHarmonizer
+          example: "1.0.0"
+        uptime:
+          type: string
+          description: Tiempo continuo de funcionamiento
+          example: "72h 14m 22s"
+        db_connected:
+          type: boolean
+          description: Conexión activa y verificada con PostgreSQL
+          example: true
+        postgis_version:
+          type: string
+          description: Versión instalada de la extensión espacial PostGIS
+          example: "3.4.2"
+        last_ingestion:
+          type: string
+          format: date-time
+          description: Fecha y hora del último procesamiento satelital exitoso
+          example: "2026-11-14T12:00:00Z"
+        memory_usage_mb:
+          type: number
+          format: float
+          description: Consumo de memoria RAM en Megabytes
+          example: 248.5
+
+    DateRange:
+      type: object
+      description: Rango o ventana temporal de fechas
+      required:
+        - start
+        - end
+      properties:
+        start:
+          type: string
+          format: date
+          description: Fecha de inicio (YYYY-MM-DD)
+          example: "2024-08-01"
+        end:
+          type: string
+          format: date
+          description: Fecha de fin (YYYY-MM-DD)
+          example: "2024-08-31"
+
+    HotspotsComparison:
+      type: object
+      description: Evaluación cuantitativa de discrepancias entre MODIS y VIIRS y diagnóstico del Efecto 2012
+      required:
+        - bbox
+        - date_start
+        - date_end
+        - modis_raw_count
+        - viirs_raw_count
+        - raw_ratio_viirs_to_modis
+        - harmonized_events_count
+        - clustering_compression_ratio
+        - effect_2012_bias_detected
+      properties:
+        bbox:
+          type: string
+          example: "-62.5,-18.2,-59.8,-15.5"
+        date_start:
+          type: string
+          format: date
+          example: "2024-08-01"
+        date_end:
+          type: string
+          format: date
+          example: "2024-08-31"
+        modis_raw_count:
+          type: integer
+          description: Detecciones de focos térmicos MODIS sin filtrar
+          example: 3420
+        viirs_raw_count:
+          type: integer
+          description: Detecciones de focos térmicos VIIRS sin filtrar
+          example: 13180
+        raw_ratio_viirs_to_modis:
+          type: number
+          format: float
+          description: Proporción VIIRS / MODIS (típicamente entre 3.0x y 5.0x)
+          example: 3.85
+        harmonized_events_count:
+          type: integer
+          description: Cantidad de incendios unificados post-armonización ST-DBSCAN
+          example: 2890
+        modis_mean_frp:
+          type: number
+          format: float
+          description: Promedio de FRP medido por MODIS (MW)
+          example: 48.2
+        viirs_mean_frp:
+          type: number
+          format: float
+          description: Promedio de FRP medido por VIIRS (MW)
+          example: 18.6
+        calibrated_mean_frp:
+          type: number
+          format: float
+          description: Promedio de FRP calibrado normalizado (MW)
+          example: 52.4
+        clustering_compression_ratio:
+          type: number
+          format: float
+          description: Porcentaje de reducción de redundancia espacial obtenida
+          example: 78.1
+        effect_2012_bias_detected:
+          type: boolean
+          description: Indica si se detectó el sesgo de sobredetección característico del 2012
+          example: true
+        analysis_summary:
+          type: string
+          description: Conclusión del diagnóstico analítico
+          example: "VIIRS reportó 3.85x más detecciones térmicas que MODIS debido a su pixel de 375m vs 1000m. La armonización redujo la redundancia un 78.1% manteniendo la coherencia energética con la serie histórica 2000-2011."
+
+    IngestFirmsRequest:
+      type: object
+      description: Solicitud para disparar una descarga e ingesta de datos NASA FIRMS
+      required:
+        - sensor
+        - date_start
+        - date_end
+        - source_type
+      properties:
+        sensor:
+          type: string
+          enum: [MODIS, VIIRS, BOTH]
+          description: Sensor de interés
+          example: BOTH
+        date_start:
+          type: string
+          format: date
+          description: Fecha inicial de descarga (YYYY-MM-DD)
+          example: "2024-08-01"
+        date_end:
+          type: string
+          format: date
+          description: Fecha final de descarga (YYYY-MM-DD)
+          example: "2024-08-31"
+        source_type:
+          type: string
+          enum: [firms_api, csv_upload, nasa_archive]
+          description: Origen del conjunto de datos
+          example: firms_api
+        firms_map_key:
+          type: string
+          description: MAP_KEY opcional de la API de NASA FIRMS (si se omite, usa la variable de entorno del servidor)
+          example: "f7a8b9c0d1e2f3a4b5c6d7e8f9"
+        auto_harmonize:
+          type: boolean
+          default: true
+          description: Ejecutar automáticamente el pipeline ST-DBSCAN tras completar la carga en base de datos
+          example: true
+        region_id:
+          type: string
+          description: Identificador opcional de la región a restringir geográficamente
+          example: reg_bo_chiquitania
+
+    HarmonizedStatistics:
+      type: object
+      description: Resumen estadístico cuantitativo del régimen de fuego armonizado
+      required:
+        - region_id
+        - date_range
+        - total_events
+        - total_burned_area_ha
+        - avg_hfii
+        - max_hfii
+      properties:
+        region_id:
+          type: string
+          example: reg_bo_chiquitania
+        date_range:
+          $ref: "#/components/schemas/DateRange"
+        total_events:
+          type: integer
+          example: 2890
+        total_burned_area_ha:
+          type: number
+          format: float
+          example: 145200.5
+        avg_hfii:
+          type: number
+          format: float
+          example: 68.4
+        max_hfii:
+          type: number
+          format: float
+          example: 96.8
+        total_calibrated_energy_pj:
+          type: number
+          format: float
+          description: Energía total liberada estimada en Petajulios (PJ)
+          example: 12.4
+        daily_average_events:
+          type: number
+          format: float
+          example: 93.2
+        peak_day:
+          type: string
+          format: date
+          example: "2024-08-18"
+        land_cover_breakdown:
+          type: object
+          description: Porcentaje de afectación por cobertura de suelo
+          example:
+            bosque_seco_chiquitano_pct: 54.2
+            cerrado_sabana_pct: 31.8
+            pastizales_antropicos_pct: 12.0
+            humedales_pct: 2.0
+
+    TimelinePoint:
+      type: object
+      description: Punto temporal en la serie histórica para graficación comparativa
+      required:
+        - timestamp
+        - period
+        - modis_count
+        - viirs_count
+        - raw_sum
+        - harmonized_count
+        - total_area_ha
+        - mean_hfii
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          example: "2012-09-01T00:00:00Z"
+        period:
+          type: string
+          description: Etiqueta del período (YYYY-MM o YYYY-WW)
+          example: "2012-09"
+        modis_count:
+          type: integer
+          example: 4350
+        viirs_count:
+          type: integer
+          example: 16800
+        raw_sum:
+          type: integer
+          description: Suma cruda sin armonizar (evidencia el salto del Efecto 2012)
+          example: 21150
+        harmonized_count:
+          type: integer
+          description: Cantidad normalizada y armonizada (mantiene continuidad sin saltos)
+          example: 4120
+        total_area_ha:
+          type: number
+          format: float
+          example: 205000.0
+        mean_hfii:
+          type: number
+          format: float
+          example: 63.8
+
+    AnomalyEntry:
+      type: object
+      description: Registro de evento extremo o anomalía estadística en el calendario de quemas
+      required:
+        - date
+        - region_id
+        - observed_events
+        - expected_events
+        - z_score
+        - deviation_percentage
+        - severity
+        - description
+      properties:
+        date:
+          type: string
+          format: date
+          example: "2019-08-25"
+        region_id:
+          type: string
+          example: reg_bo_chiquitania
+        observed_events:
+          type: integer
+          description: Eventos observados en la fecha
+          example: 184
+        expected_events:
+          type: number
+          format: float
+          description: Eventos promedio esperados según la climatología
+          example: 32.5
+        z_score:
+          type: number
+          format: float
+          description: Puntuación Z de la anomalía
+          example: 4.82
+        deviation_percentage:
+          type: number
+          format: float
+          description: Porcentaje de incremento sobre lo normal esperado
+          example: 466.1
+        severity:
+          type: string
+          enum: [moderate, high, extreme]
+          description: Clasificación de severidad
+          example: extreme
+        description:
+          type: string
+          description: Explicación del contexto de la anomalía
+          example: "Megaincendio histórico de la Chiquitanía 2019 superó en 4.82 desviaciones estándar el promedio climatológico."
+
+    ExportPdfRequest:
+      type: object
+      description: Parámetros para la generación del reporte técnico en PDF
+      required:
+        - region_id
+        - date_start
+        - date_end
+        - report_title
+      properties:
+        region_id:
+          type: string
+          example: reg_bo_chiquitania
+        date_start:
+          type: string
+          format: date
+          example: "2024-08-01"
+        date_end:
+          type: string
+          format: date
+          example: "2024-08-31"
+        report_title:
+          type: string
+          example: "Informe Técnico de Incendios Forestales - Bosque Seco Chiquitano"
+        include_charts:
+          type: boolean
+          default: true
+          example: true
+        include_map:
+          type: boolean
+          default: true
+          example: true
+        include_anomalies:
+          type: boolean
+          default: true
+          example: true
+        author:
+          type: string
+          example: "Sistema PyrosHarmonizer - Gobernación de Santa Cruz"
+        language:
+          type: string
+          enum: [es, en]
+          default: es
+          example: es
+
+    ExportPdfResponse:
+      type: object
+      description: Metadatos y enlace de descarga del reporte PDF generado
+      required:
+        - job_id
+        - status
+        - download_url
+        - file_size_bytes
+        - expires_at
+      properties:
+        job_id:
+          type: string
+          example: "pdf_f9a8b7c6-1234-5678-abcd-ef0123456789"
+        status:
+          type: string
+          enum: [processing, completed, failed]
+          example: completed
+        download_url:
+          type: string
+          format: uri
+          example: "https://pyrosharmonizer.railway.app/api/v1/export/download/pdf_f9a8b7c6.pdf"
+        file_size_bytes:
+          type: integer
+          example: 4892014
+        expires_at:
+          type: string
+          format: date-time
+          description: Fecha de caducidad del enlace temporal de descarga
+          example: "2026-11-15T15:00:00Z"
