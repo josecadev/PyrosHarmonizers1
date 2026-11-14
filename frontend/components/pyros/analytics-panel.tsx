@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import {
   Area,
   Bar,
@@ -20,9 +20,15 @@ import {
 } from 'recharts'
 import { cn } from '@/lib/utils'
 import {
+  CHOW_TEST_METRICS,
   FRP_INTERCEPT,
   FRP_R2,
   FRP_SLOPE,
+  GAMMA_DAY,
+  GAMMA_NIGHT,
+  HFII_ALPHA,
+  HFII_BETA,
+  HFII_KAPPA,
   VIIRS_START,
   fmt,
   mulberry32,
@@ -74,6 +80,16 @@ const SENSOR_SHARE = [
 ]
 
 export function AnalyticsPanel({ mode, history, year, scene, kpis, filters }: Props) {
+  const [visibleCurves, setVisibleCurves] = useState({
+    modis: true,
+    viirs: true,
+    raw: true,
+    harmonized: true,
+  })
+
+  const toggleCurve = (key: keyof typeof visibleCurves) =>
+    setVisibleCurves((prev) => ({ ...prev, [key]: !prev[key] }))
+
   const scatter = useMemo(() => {
     const rand = mulberry32(year * 31 + kpis.events)
     return Array.from({ length: 70 }, () => {
@@ -122,19 +138,56 @@ export function AnalyticsPanel({ mode, history, year, scene, kpis, filters }: Pr
       </div>
 
       <Section
-        title='Corrección del "Efecto 2012"'
-        subtitle="Suma cruda MODIS + VIIRS frente a la curva armonizada por PyrosHarmonizer (focos / eventos por año)."
+        title='Corrección del "Efecto 2012" (4 Series)'
+        subtitle="Comparativa multianual entre (A) MODIS, (B) VIIRS, (C) Suma Cruda y (D) Serie Armonizada PyrosHarmonizer."
       >
-        <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
-          <span className={cn('flex items-center gap-1.5', !raw && 'text-muted-foreground')}>
-            <span className="h-0 w-4 border-t-2 border-dashed border-viirs" aria-hidden />
-            Crudo MODIS + VIIRS
-          </span>
-          <span className={cn('flex items-center gap-1.5', raw && 'text-muted-foreground')}>
-            <span className="h-2 w-4 rounded-sm bg-harmonized/60" aria-hidden />
+        <div className="flex flex-wrap gap-1.5 text-[10px]">
+          <button
+            type="button"
+            onClick={() => toggleCurve('modis')}
+            className={cn(
+              'flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono transition-opacity',
+              visibleCurves.modis ? 'border-modis/50 text-foreground' : 'border-border text-muted-foreground opacity-50',
+            )}
+          >
+            <span className="h-0.5 w-3 bg-modis" aria-hidden />
+            MODIS
+          </button>
+          <button
+            type="button"
+            onClick={() => toggleCurve('viirs')}
+            className={cn(
+              'flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono transition-opacity',
+              visibleCurves.viirs ? 'border-amber-400/50 text-foreground' : 'border-border text-muted-foreground opacity-50',
+            )}
+          >
+            <span className="h-0.5 w-3 bg-amber-400" aria-hidden />
+            VIIRS
+          </button>
+          <button
+            type="button"
+            onClick={() => toggleCurve('raw')}
+            className={cn(
+              'flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono transition-opacity',
+              visibleCurves.raw ? 'border-viirs/50 text-foreground' : 'border-border text-muted-foreground opacity-50',
+            )}
+          >
+            <span className="h-0 w-3 border-t-2 border-dashed border-viirs" aria-hidden />
+            Σ Crudo
+          </button>
+          <button
+            type="button"
+            onClick={() => toggleCurve('harmonized')}
+            className={cn(
+              'flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono transition-opacity',
+              visibleCurves.harmonized ? 'border-harmonized/50 text-foreground' : 'border-border text-muted-foreground opacity-50',
+            )}
+          >
+            <span className="h-2 w-3 rounded-sm bg-harmonized/60" aria-hidden />
             Armonizado
-          </span>
+          </button>
         </div>
+
         <div className="h-48">
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={history} margin={{ top: 8, right: 6, left: -18, bottom: 0 }}>
@@ -158,31 +211,63 @@ export function AnalyticsPanel({ mode, history, year, scene, kpis, filters }: Pr
               <Tooltip
                 contentStyle={tooltipStyle}
                 labelStyle={{ color: 'var(--muted-foreground)' }}
-                formatter={(v, name) => [fmt(Number(v)), name === 'raw' ? 'Crudo' : 'Armonizado']}
+                formatter={(v, name) => [
+                  fmt(Number(v)),
+                  name === 'raw'
+                    ? 'Σ Crudo'
+                    : name === 'harmonized'
+                      ? 'Armonizado'
+                      : name === 'modis'
+                        ? 'MODIS (1 km)'
+                        : 'VIIRS (375 m)',
+                ]}
               />
-              <Area
-                type="monotone"
-                dataKey="harmonized"
-                stroke="var(--harmonized)"
-                strokeWidth={1.5}
-                fill="url(#harmFill)"
-                fillOpacity={raw ? 0.35 : 1}
-                strokeOpacity={raw ? 0.4 : 1}
-                isAnimationActive={false}
-              />
-              <Line
-                type="monotone"
-                dataKey="raw"
-                stroke="var(--viirs)"
-                strokeWidth={1.5}
-                strokeDasharray="4 3"
-                dot={false}
-                strokeOpacity={raw ? 1 : 0.55}
-                isAnimationActive={false}
-              />
+              {visibleCurves.harmonized && (
+                <Area
+                  type="monotone"
+                  dataKey="harmonized"
+                  stroke="var(--harmonized)"
+                  strokeWidth={1.75}
+                  fill="url(#harmFill)"
+                  isAnimationActive={false}
+                />
+              )}
+              {visibleCurves.modis && (
+                <Line
+                  type="monotone"
+                  dataKey="modis"
+                  stroke="var(--modis)"
+                  strokeWidth={1.25}
+                  dot={false}
+                  isAnimationActive={false}
+                />
+              )}
+              {visibleCurves.viirs && (
+                <Line
+                  type="monotone"
+                  dataKey="viirs"
+                  stroke="#fbbf24"
+                  strokeWidth={1.25}
+                  strokeDasharray="2 2"
+                  dot={false}
+                  isAnimationActive={false}
+                />
+              )}
+              {visibleCurves.raw && (
+                <Line
+                  type="monotone"
+                  dataKey="raw"
+                  stroke="var(--viirs)"
+                  strokeWidth={1.5}
+                  strokeDasharray="4 3"
+                  dot={false}
+                  isAnimationActive={false}
+                />
+              )}
             </ComposedChart>
           </ResponsiveContainer>
         </div>
+
         {yearPoint && (
           <dl className="grid grid-cols-3 gap-2 border-t border-border pt-3 font-mono text-[11px]">
             <div className="flex flex-col gap-0.5">
@@ -199,10 +284,24 @@ export function AnalyticsPanel({ mode, history, year, scene, kpis, filters }: Pr
             </div>
           </dl>
         )}
+
+        <div className="rounded border border-border bg-background/80 p-2.5 font-mono text-[10px]">
+          <p className="font-medium text-foreground">Test de Chow (Ruptura Estructural 2012)</p>
+          <div className="mt-1 grid grid-cols-2 gap-2">
+            <div>
+              <span className="text-muted-foreground">p-value Crudo: </span>
+              <span className="text-viirs">{CHOW_TEST_METRICS.pValueRaw} (Ruptura)</span>
+            </div>
+            <div>
+              <span className="text-muted-foreground">p-value Arm.: </span>
+              <span className="text-harmonized">{CHOW_TEST_METRICS.pValueHarmonized} (Continuo)</span>
+            </div>
+          </div>
+        </div>
       </Section>
 
       <Section
-        title="Regresión FRP VIIRS → MODIS"
+        title="Regresión FRP VIIRS → MODIS y Ecuación HFII"
         subtitle="Pares de detecciones co-localizadas usadas para calibrar la potencia radiativa a la línea base MODIS."
       >
         <div className="h-40">
@@ -224,9 +323,8 @@ export function AnalyticsPanel({ mode, history, year, scene, kpis, filters }: Pr
             </ScatterChart>
           </ResponsiveContainer>
         </div>
-        <p className="font-mono text-[11px] text-muted-foreground">
-          y = <span className="text-foreground">{FRP_SLOPE}</span>x + <span className="text-foreground">{FRP_INTERCEPT}</span> · R² ={' '}
-          <span className="text-foreground">{FRP_R2}</span> · n = {scatter.length}
+        <p className="font-mono text-[10px] text-muted-foreground">
+          HFII = ({HFII_ALPHA}·FRP<sup>{HFII_BETA}</sup> + {HFII_KAPPA}) · ψ(scan,track) · γ<sub>solar</sub> (γ<sub>D</sub>={GAMMA_DAY}, γ<sub>N</sub>={GAMMA_NIGHT}) · R²={FRP_R2}
         </p>
       </Section>
 

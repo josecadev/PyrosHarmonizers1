@@ -1,6 +1,20 @@
 import { AlertTriangle, CheckCircle2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { FRP_INTERCEPT, FRP_R2, FRP_SLOPE, HFII_LEVELS, fmt, hfiiLevel, type Kpis, type Mode, type Region } from '@/lib/pyros/data'
+import {
+  FRP_R2,
+  GAMMA_DAY,
+  GAMMA_NIGHT,
+  HFII_ALPHA,
+  HFII_BETA,
+  HFII_KAPPA,
+  HFII_LEVELS,
+  fmt,
+  getH3Specs,
+  hfiiLevel,
+  type Kpis,
+  type Mode,
+  type Region,
+} from '@/lib/pyros/data'
 
 interface Props {
   mode: Mode
@@ -24,7 +38,12 @@ function Card({ index, title, children }: { index: string; title: string; childr
 function Value({ value, unit, tone }: { value: string; unit: string; tone: 'raw' | 'ok' }) {
   return (
     <p className="flex items-baseline gap-1.5">
-      <span className={cn('font-mono text-3xl font-medium tracking-tight tabular-nums transition-colors', tone === 'raw' ? 'text-viirs' : 'text-foreground')}>
+      <span
+        className={cn(
+          'font-mono text-3xl font-medium tracking-tight tabular-nums transition-colors',
+          tone === 'raw' ? 'text-viirs' : 'text-foreground',
+        )}
+      >
         {value}
       </span>
       <span className="text-xs text-muted-foreground">{unit}</span>
@@ -62,6 +81,7 @@ export function KpiPanel({ mode, kpis, year, region }: Props) {
   const raw = mode === 'raw'
   const hfiiValue = raw ? kpis.hfiiRaw : kpis.hfii
   const level = hfiiLevel(hfiiValue)
+  const h3Spec = getH3Specs(kpis.h3Res)
 
   return (
     <aside
@@ -89,22 +109,25 @@ export function KpiPanel({ mode, kpis, year, region }: Props) {
         {mode === 'dbscan' && (
           <>
             <Value value={fmt(kpis.events)} unit="incendios reales unificados" tone="ok" />
-            <Note tone="ok">-{fmt(kpis.reduction * 100, 1)}% duplicación espacial (ε 500–1000 m · Δt ≤ 3.5 h)</Note>
+            <Note tone="ok">-{fmt(kpis.reduction * 100, 1)}% duplicación espacial (ε 750 m · Δt ≤ 3.5 h)</Note>
           </>
         )}
         {mode === 'h3' && (
           <>
             <Value value={fmt(kpis.h3Cells)} unit="celdas H3 activas" tone="ok" />
-            <Note tone="ok">{fmt(kpis.cellsPerDay, 1)} celdas activas / día de temporada · res. 8</Note>
+            <Note tone="ok">
+              {fmt(kpis.cellsPerDay, 1)} celdas activas / día de temporada · Res. {kpis.h3Res}
+            </Note>
           </>
         )}
         <div className="flex flex-col gap-1 border-t border-border pt-2">
           <Row label="MODIS 1 km" value={fmt(kpis.modisCount)} />
           <Row label="VIIRS 375 m" value={fmt(kpis.viirsCount)} />
+          <Row label="Anomalías estáticas filtradas" value={fmt(kpis.staticMaskedCount)} />
         </div>
       </Card>
 
-      <Card index="KPI-02" title="Potencia radiativa calibrada (FRP)">
+      <Card index="KPI-02" title="Potencia radiativa calibrada (HFII)">
         {raw ? (
           <>
             <Value value={fmt(kpis.rawFrp)} unit="MW sin calibrar" tone="raw" />
@@ -113,25 +136,28 @@ export function KpiPanel({ mode, kpis, year, region }: Props) {
         ) : mode === 'dbscan' ? (
           <>
             <Value value={fmt(kpis.calFrp)} unit="MW" tone="ok" />
-            <Note tone="neutral">FRP fusionado por evento, calibrado a la línea base MODIS</Note>
+            <Note tone="neutral">FRP fusionado por evento, calibrado con factor off-nadir y solar</Note>
           </>
         ) : (
           <>
             <Value value={fmt(kpis.frpDensity, 1)} unit="MW / km²" tone="ok" />
-            <Note tone="neutral">Densidad energética media por celda activa</Note>
+            <Note tone="neutral">Densidad energética media por celda activa H3 Res. {kpis.h3Res}</Note>
           </>
         )}
-        <div className="rounded border border-border bg-background px-2.5 py-2 font-mono text-[11px]">
-          <span className="text-muted-foreground">FRP</span>
-          <sub className="text-muted-foreground">MODIS</sub> = {FRP_SLOPE}·FRP<sub>VIIRS</sub> + {FRP_INTERCEPT}
-          <span className="ml-2 text-muted-foreground">R² {FRP_R2}</span>
+        <div className="rounded border border-border bg-background px-2.5 py-2 font-mono text-[10px] leading-relaxed">
+          <span className="text-muted-foreground">HFII</span> = ({HFII_ALPHA}·FRP<sup>{HFII_BETA}</sup> + {HFII_KAPPA}) · ψ(s,t) · γ<sub>solar</sub>
+          <div className="mt-0.5 text-muted-foreground">
+            γ<sub>D</sub>={GAMMA_DAY} · γ<sub>N</sub>={GAMMA_NIGHT} · R²={FRP_R2}
+          </div>
         </div>
       </Card>
 
       <Card index="KPI-03" title="Índice armonizado de intensidad (HFII)">
         <div className="flex items-end justify-between">
           <Value value={String(hfiiValue)} unit="/ 100" tone={raw ? 'raw' : 'ok'} />
-          <span className="mb-1 rounded border border-border px-1.5 py-0.5 text-[11px]">{HFII_LEVELS[level].label}</span>
+          <span className="mb-1 rounded border border-border px-1.5 py-0.5 font-mono text-[10px]">
+            {HFII_LEVELS[level].label} · {HFII_LEVELS[level].percentile}
+          </span>
         </div>
         <div className="flex gap-1" role="img" aria-label={`Severidad ${HFII_LEVELS[level].label}`}>
           {[0, 1, 2, 3, 4].map((l) => (
@@ -146,7 +172,7 @@ export function KpiPanel({ mode, kpis, year, region }: Props) {
           ))}
         </div>
         <Note tone={raw ? 'warn' : 'neutral'}>
-          {raw ? 'Índice inflado por conteo múltiple de píxeles VIIRS' : 'Media de temporada normalizada para brigadas de emergencia'}
+          {raw ? 'Índice inflado por conteo múltiple de píxeles VIIRS' : `Clasificación por percentil histórico (${HFII_LEVELS[level].code})`}
         </Note>
       </Card>
 
@@ -154,7 +180,7 @@ export function KpiPanel({ mode, kpis, year, region }: Props) {
         {raw && (
           <>
             <Value value={fmt(kpis.rawAreaKm2)} unit="km² (Σ scan × track)" tone="raw" />
-            <Note tone="warn">Huellas superpuestas contadas dos veces</Note>
+            <Note tone="warn">Huellas superpuestas contadas múltiples veces</Note>
           </>
         )}
         {mode === 'dbscan' && (
@@ -166,7 +192,9 @@ export function KpiPanel({ mode, kpis, year, region }: Props) {
         {mode === 'h3' && (
           <>
             <Value value={fmt(kpis.h3AreaKm2 * 100)} unit="ha" tone="ok" />
-            <Note tone="neutral">{fmt(kpis.h3Cells)} celdas × 0.737 km² (H3 res. 8)</Note>
+            <Note tone="neutral">
+              {fmt(kpis.h3Cells)} celdas × {h3Spec.areaKm2} km² (H3 Res. {kpis.h3Res})
+            </Note>
           </>
         )}
       </Card>
