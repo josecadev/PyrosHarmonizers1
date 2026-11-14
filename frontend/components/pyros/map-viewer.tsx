@@ -1,11 +1,12 @@
 'use client'
 
 import { useMemo, useRef, useState } from 'react'
-import { Layers, Maximize2, Minus, Plus } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Maximize2, Minus, Plus } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { fmt, severity, type CalendarDay, type Mode, type Region } from '@/lib/pyros/data'
+import { fmt, formatDateEs, severity, type CalendarDay, type Mode, type Region } from '@/lib/pyros/data'
 import { MAP_H_KM, MAP_W_KM, PX_PER_KM, type Detection, type FireEvent, type HexCell, type Scene } from '@/lib/pyros/scene'
 import { Inspector } from './inspector'
+import { CornerMarks, Eyebrow } from './ui'
 
 const VB_W = MAP_W_KM * PX_PER_KM
 const VB_H = MAP_H_KM * PX_PER_KM
@@ -22,20 +23,21 @@ interface Props {
   region: Region
   day: CalendarDay
   year: number
+  total: number
+  onDoyChange: React.Dispatch<React.SetStateAction<number>>
 }
 
 type LayerKey = 'modis' | 'viirs' | 'hull' | 'hex' | 'graticule'
 
-const LAYER_LABELS: { key: LayerKey; label: string; swatch: string }[] = [
-  { key: 'modis', label: 'Píxel MODIS 1 km', swatch: 'border border-modis' },
-  { key: 'viirs', label: 'Píxel VIIRS 375 m', swatch: 'bg-viirs' },
-  { key: 'hull', label: 'Envolvente ST-DBSCAN', swatch: 'border border-harmonized bg-harmonized/30' },
-  { key: 'hex', label: 'Grilla H3 res. 8', swatch: 'bg-heat-3' },
-  { key: 'graticule', label: 'Retícula WGS84', swatch: 'border border-muted-foreground' },
+const LAYERS: { key: LayerKey; label: string; swatch: string; modes?: Mode[] }[] = [
+  { key: 'modis', label: 'MODIS 1 km', swatch: 'border border-modis' },
+  { key: 'viirs', label: 'VIIRS 375 m', swatch: 'bg-viirs' },
+  { key: 'hull', label: 'Envolvente ST-DBSCAN', swatch: 'border border-harmonized bg-harmonized/15', modes: ['dbscan'] },
+  { key: 'hex', label: 'Grilla H3 res. 8', swatch: 'bg-heat-3', modes: ['h3'] },
+  { key: 'graticule', label: 'Retícula WGS84', swatch: 'border border-dashed border-platinum' },
 ]
 
 const HEX_FILLS = ['var(--heat-1)', 'var(--heat-2)', 'var(--heat-3)', 'var(--heat-4)']
-
 function hexFill(density: number) {
   if (density < 20) return HEX_FILLS[0]
   if (density < 50) return HEX_FILLS[1]
@@ -43,12 +45,14 @@ function hexFill(density: number) {
   return HEX_FILLS[3]
 }
 
-export function MapViewer({ mode, scene, region, day, year }: Props) {
+const hud = 'relative border border-rule bg-background/85 backdrop-blur-md'
+
+export function MapViewer({ mode, scene, region, day, year, total, onDoyChange }: Props) {
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [layers, setLayers] = useState<Record<LayerKey, boolean>>({ modis: true, viirs: true, hull: true, hex: true, graticule: true })
-  const [layersOpen, setLayersOpen] = useState(false)
   const [selection, setSelection] = useState<Selection | null>(null)
+  const [dragging, setDragging] = useState(false)
   const svgRef = useRef<SVGSVGElement>(null)
   const drag = useRef<{ x: number; y: number; px: number; py: number; moved: boolean } | null>(null)
   const sceneRef = useRef(scene)
@@ -101,6 +105,7 @@ export function MapViewer({ mode, scene, region, day, year }: Props) {
     const dy = e.clientY - d.y
     if (!d.moved && Math.hypot(dx, dy) > 4) {
       d.moved = true
+      setDragging(true)
       ;(e.currentTarget as Element).setPointerCapture(e.pointerId)
     }
     if (d.moved) {
@@ -108,13 +113,15 @@ export function MapViewer({ mode, scene, region, day, year }: Props) {
       setPan({ x: d.px + dx * k, y: d.py + dy * k })
     }
   }
-  const onPointerUp = (e: React.PointerEvent) => {
+  const endDrag = (e: React.PointerEvent) => {
     const d = drag.current
-    drag.current = null
+    setDragging(false)
     if (d?.moved) {
-      ;(e.currentTarget as Element).releasePointerCapture(e.pointerId)
+      ;(e.currentTarget as Element).releasePointerCapture?.(e.pointerId)
+      setTimeout(() => (drag.current = null), 0)
       return
     }
+    drag.current = null
   }
   const select = (s: Selection) => () => {
     if (drag.current?.moved) return
@@ -125,8 +132,8 @@ export function MapViewer({ mode, scene, region, day, year }: Props) {
   const viirsDet = scene.detections.filter((d) => d.sensor === 'VIIRS')
 
   const op = {
-    modis: !layers.modis ? 0 : mode === 'raw' ? 1 : mode === 'dbscan' ? 0.35 : 0.15,
-    viirs: !layers.viirs ? 0 : mode === 'raw' ? 1 : mode === 'dbscan' ? 0.4 : 0.2,
+    modis: !layers.modis ? 0 : mode === 'raw' ? 1 : mode === 'dbscan' ? 0.3 : 0.12,
+    viirs: !layers.viirs ? 0 : mode === 'raw' ? 1 : mode === 'dbscan' ? 0.35 : 0.15,
     hull: layers.hull && mode === 'dbscan' ? 1 : 0,
     hex: layers.hex && mode === 'h3' ? 1 : 0,
   }
@@ -135,20 +142,24 @@ export function MapViewer({ mode, scene, region, day, year }: Props) {
   const barLen = kmBar * PX_PER_KM * zoom
   const isSelected = (kind: Selection['kind'], id: string | number) =>
     selection?.kind === kind &&
-    (kind === 'hex' ? (selection.item as HexCell).h3 === id : kind === 'det' ? (selection.item as Detection).id === id : (selection.item as FireEvent).id === id)
+    (kind === 'hex'
+      ? (selection.item as HexCell).h3 === id
+      : kind === 'det'
+        ? (selection.item as Detection).id === id
+        : (selection.item as FireEvent).id === id)
 
   return (
-    <div className="relative flex h-full w-full flex-1 overflow-hidden">
+    <div className="relative flex min-h-[560px] w-full flex-1 overflow-hidden bg-canvas">
       <svg
         ref={svgRef}
         viewBox={`0 0 ${VB_W} ${VB_H}`}
-        preserveAspectRatio="xMidYMid meet"
-        className="h-full w-full touch-none select-none"
-        style={{ cursor: drag.current?.moved ? 'grabbing' : 'grab' }}
+        preserveAspectRatio="xMidYMid slice"
+        className="absolute inset-0 h-full w-full touch-none select-none"
+        style={{ cursor: dragging ? 'grabbing' : 'grab' }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerLeave={() => (drag.current = null)}
+        onPointerUp={endDrag}
+        onPointerLeave={endDrag}
         onWheel={(e) => zoomBy(e.deltaY < 0 ? 1.15 : 1 / 1.15)}
         role="application"
         aria-label={`Visor de huella de píxel para ${region.name}, ${day.iso}`}
@@ -158,10 +169,10 @@ export function MapViewer({ mode, scene, region, day, year }: Props) {
           {layers.graticule && (
             <g aria-hidden>
               {graticule.lats.map((l) => (
-                <line key={`la${l.v}`} x1={0} x2={VB_W} y1={l.y} y2={l.y} stroke="var(--border)" strokeWidth={1} vectorEffect="non-scaling-stroke" />
+                <line key={`la${l.v}`} x1={-VB_W} x2={VB_W * 2} y1={l.y} y2={l.y} stroke="var(--rule)" strokeDasharray="2 4" strokeWidth={1} vectorEffect="non-scaling-stroke" />
               ))}
               {graticule.lons.map((l) => (
-                <line key={`lo${l.v}`} y1={0} y2={VB_H} x1={l.x} x2={l.x} stroke="var(--border)" strokeWidth={1} vectorEffect="non-scaling-stroke" />
+                <line key={`lo${l.v}`} y1={-VB_H} y2={VB_H * 2} x1={l.x} x2={l.x} stroke="var(--rule)" strokeDasharray="2 4" strokeWidth={1} vectorEffect="non-scaling-stroke" />
               ))}
             </g>
           )}
@@ -173,9 +184,9 @@ export function MapViewer({ mode, scene, region, day, year }: Props) {
                   key={h.h3}
                   points={h.points.map((p) => p.join(',')).join(' ')}
                   fill={h.count ? hexFill(h.density) : 'transparent'}
-                  fillOpacity={h.count ? 0.85 : 0}
+                  fillOpacity={h.count ? 0.9 : 0}
                   stroke={h.count ? 'var(--harmonized)' : 'var(--border)'}
-                  strokeOpacity={h.count ? (isSelected('hex', h.h3) ? 1 : 0.55) : 0.7}
+                  strokeOpacity={h.count ? (isSelected('hex', h.h3) ? 1 : 0.28) : 1}
                   strokeWidth={isSelected('hex', h.h3) ? 2 : 1}
                   vectorEffect="non-scaling-stroke"
                   className={h.count ? 'cursor-pointer' : undefined}
@@ -193,7 +204,7 @@ export function MapViewer({ mode, scene, region, day, year }: Props) {
                   width={d.scan}
                   height={d.track}
                   fill="var(--modis)"
-                  fillOpacity={0.07}
+                  fillOpacity={isSelected('det', d.id) ? 0.25 : 0.05}
                   stroke="var(--modis)"
                   strokeWidth={isSelected('det', d.id) ? 2.5 : 1.25}
                   vectorEffect="non-scaling-stroke"
@@ -212,9 +223,9 @@ export function MapViewer({ mode, scene, region, day, year }: Props) {
                   width={d.scan}
                   height={d.track}
                   fill="var(--viirs)"
-                  fillOpacity={isSelected('det', d.id) ? 0.9 : 0.45}
-                  stroke="var(--viirs)"
-                  strokeWidth={isSelected('det', d.id) ? 2 : 0.75}
+                  fillOpacity={isSelected('det', d.id) ? 0.95 : 0.5}
+                  stroke={isSelected('det', d.id) ? 'var(--harmonized)' : 'var(--viirs)'}
+                  strokeWidth={isSelected('det', d.id) ? 2 : 0.6}
                   vectorEffect="non-scaling-stroke"
                   className="cursor-pointer"
                   onClick={select({ kind: 'det', item: d })}
@@ -235,81 +246,98 @@ export function MapViewer({ mode, scene, region, day, year }: Props) {
                   <polygon
                     points={e.hull.map((p) => p.join(',')).join(' ')}
                     fill="var(--harmonized)"
-                    fillOpacity={isSelected('event', e.id) ? 0.35 : 0.18}
+                    fillOpacity={isSelected('event', e.id) ? 0.16 : 0.05}
                     stroke="var(--harmonized)"
-                    strokeWidth={isSelected('event', e.id) ? 2.5 : 1.5}
+                    strokeWidth={isSelected('event', e.id) ? 2 : 1.25}
                     strokeLinejoin="round"
                     vectorEffect="non-scaling-stroke"
                     className="cursor-pointer"
                     onClick={select({ kind: 'event', item: e })}
                   />
-                  <circle cx={e.centroid[0]} cy={e.centroid[1]} r={0.06} fill="var(--foreground)" pointerEvents="none" />
+                  <circle cx={e.centroid[0]} cy={e.centroid[1]} r={0.05} fill="var(--harmonized)" pointerEvents="none" />
                 </g>
               ))}
             </g>
           </g>
         </g>
+      </svg>
 
-        {layers.graticule && (
-          <g aria-hidden className="font-mono" fontSize={10} fill="var(--muted-foreground)">
+      {layers.graticule && (
+        <svg className="pointer-events-none absolute inset-0 h-full w-full" viewBox={`0 0 ${VB_W} ${VB_H}`} preserveAspectRatio="xMidYMid slice" aria-hidden>
+          <g fontSize={10} fill="var(--muted-foreground)" style={{ fontFamily: 'var(--font-geist-mono)' }}>
             {graticule.lats.map((l) => {
               const y = pan.y + l.y * zoom
-              return y > 12 && y < VB_H - 30 ? (
-                <text key={`tla${l.v}`} x={6} y={y - 3}>
+              return y > 120 && y < VB_H - 80 ? (
+                <text key={`tla${l.v}`} x={10} y={y - 4}>
                   {Math.abs(l.v).toFixed(3)}°S
                 </text>
               ) : null
             })}
             {graticule.lons.map((l) => {
               const x = pan.x + l.x * zoom
-              return x > 60 && x < VB_W - 40 ? (
-                <text key={`tlo${l.v}`} x={x + 3} y={VB_H - 6}>
+              return x > 260 && x < VB_W - 260 ? (
+                <text key={`tlo${l.v}`} x={x + 4} y={VB_H - 70}>
                   {Math.abs(l.v).toFixed(3)}°W
                 </text>
               ) : null
             })}
           </g>
-        )}
+        </svg>
+      )}
 
-        <g transform={`translate(${VB_W - barLen - 24} ${VB_H - 34})`} aria-hidden>
-          <rect x={-8} y={-16} width={barLen + 16} height={28} rx={3} fill="var(--card)" fillOpacity={0.9} stroke="var(--border)" />
-          <line x1={0} x2={barLen} y1={4} y2={4} stroke="var(--foreground)" strokeWidth={1.5} />
-          <line x1={0} x2={0} y1={0} y2={8} stroke="var(--foreground)" strokeWidth={1.5} />
-          <line x1={barLen} x2={barLen} y1={0} y2={8} stroke="var(--foreground)" strokeWidth={1.5} />
-          <text x={barLen / 2} y={-4} textAnchor="middle" fontSize={10} className="font-mono" fill="var(--foreground)">
-            {kmBar === 1 ? '1 km' : '500 m'}
-          </text>
-        </g>
-      </svg>
-
-      <div className="pointer-events-none absolute left-3 top-3 flex flex-col gap-2">
-        <div className="pointer-events-auto rounded-md border border-border bg-card/90 px-3 py-2 backdrop-blur-md">
-          <p className="font-mono text-[11px] text-muted-foreground">
-            {day.iso} UTC · DOY {String(day.doy).padStart(3, '0')}
-          </p>
-          <p className="mt-0.5 flex items-center gap-3 text-xs">
-            <span>
-              HFII <span className="font-mono">{day.hfii}</span>{' '}
-              <span className="text-muted-foreground">({severity(day.hfii)})</span>
-            </span>
-          </p>
-          <p className="mt-1 flex gap-3 font-mono text-[11px]">
-            <span className="text-modis">{modisDet.length} MODIS</span>
-            <span className="text-viirs">{viirsDet.length} VIIRS</span>
-            <span className="text-harmonized">
-              {mode === 'h3' ? `${scene.activeHexes.length} celdas` : `${scene.events.length} eventos`}
-            </span>
-          </p>
-        </div>
+      <div className={cn(hud, 'absolute left-4 top-4 flex flex-col gap-1.5 px-3.5 py-3')}>
+        <CornerMarks />
+        <Eyebrow>
+          {day.iso} UTC · DOY {String(day.doy).padStart(3, '0')}
+        </Eyebrow>
+        <p className="text-[13px] capitalize">{formatDateEs(day.date)}</p>
+        <p className="flex gap-3 font-mono text-[11px]">
+          <span>
+            HFII {day.hfii} <span className="text-muted-foreground">{severity(day.hfii)}</span>
+          </span>
+        </p>
+        <p className="flex gap-3 border-t border-border pt-1.5 font-mono text-[11px]">
+          <span className="text-modis">{modisDet.length} MODIS</span>
+          <span className="text-viirs">{viirsDet.length} VIIRS</span>
+          <span className={cn(mode === 'raw' ? 'text-muted-foreground' : 'text-harmonized')}>
+            {mode === 'h3' ? `${scene.activeHexes.length} celdas` : `${scene.events.length} eventos`}
+          </span>
+        </p>
         {scene.detections.length === 0 && (
-          <p className="pointer-events-auto rounded-md border border-border bg-card/90 px-3 py-2 text-xs text-muted-foreground backdrop-blur-md">
-            Sin detecciones para este día y filtros. Selecciona un día de julio–octubre en el calendario.
+          <p className="max-w-56 text-[11px] leading-relaxed text-muted-foreground">
+            Sin detecciones para este día y filtros. Prueba un día de julio–octubre.
           </p>
         )}
       </div>
 
-      <div className="absolute bottom-3 left-3 flex flex-col gap-2">
-        <div className="flex flex-col overflow-hidden rounded-md border border-border bg-card/90 backdrop-blur-md">
+      <fieldset className={cn(hud, 'absolute right-4 top-4 flex w-56 flex-col gap-0.5 p-2')}>
+        <CornerMarks />
+        <legend className="sr-only">Capas</legend>
+        <Eyebrow className="px-1.5 pb-1.5 pt-0.5">Capas</Eyebrow>
+        {LAYERS.map((l) => {
+          const dim = l.modes && !l.modes.includes(mode)
+          return (
+            <label
+              key={l.key}
+              className={cn('flex cursor-pointer items-center gap-2.5 rounded-[2px] px-1.5 py-1 text-xs hover:bg-accent', dim && 'text-muted-foreground')}
+            >
+              <input
+                type="checkbox"
+                checked={layers[l.key]}
+                onChange={() => setLayers((s) => ({ ...s, [l.key]: !s[l.key] }))}
+                className="size-3 accent-foreground"
+              />
+              <span className={cn('size-2.5 shrink-0', l.swatch)} aria-hidden />
+              <span className="flex-1 truncate">{l.label}</span>
+              {dim && <span className="font-mono text-[9px] uppercase">{l.modes![0] === 'h3' ? 'H3' : 'DBSCAN'}</span>}
+            </label>
+          )
+        })}
+      </fieldset>
+
+      <div className="absolute bottom-4 left-4 flex items-end gap-2">
+        <div className={cn(hud, 'flex flex-col')}>
+          <CornerMarks />
           <button type="button" onClick={() => zoomBy(1.4)} className="p-2 hover:bg-accent focus-visible:outline-2" aria-label="Acercar">
             <Plus className="size-4" aria-hidden />
           </button>
@@ -320,56 +348,47 @@ export function MapViewer({ mode, scene, region, day, year }: Props) {
             <Maximize2 className="size-4" aria-hidden />
           </button>
         </div>
-        <span className="rounded border border-border bg-card/90 px-1.5 py-0.5 text-center font-mono text-[10px] text-muted-foreground">
-          {fmt(zoom, 1)}x
-        </span>
+        <span className="border border-rule bg-background/85 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">{fmt(zoom, 1)}x</span>
       </div>
 
-      <div className="absolute bottom-3 left-16">
+      <div className={cn(hud, 'absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center')}>
+        <CornerMarks />
         <button
           type="button"
-          aria-expanded={layersOpen}
-          onClick={() => setLayersOpen((o) => !o)}
-          className="flex items-center gap-2 rounded-md border border-border bg-card/90 px-2.5 py-1.5 text-xs backdrop-blur-md hover:bg-accent focus-visible:outline-2"
+          onClick={() => onDoyChange((d) => Math.max(1, d - 1))}
+          disabled={day.doy <= 1}
+          className="p-2 hover:bg-accent disabled:opacity-40 focus-visible:outline-2"
+          aria-label="Día anterior"
         >
-          <Layers className="size-3.5" aria-hidden />
-          Capas
+          <ChevronLeft className="size-4" aria-hidden />
         </button>
-        {layersOpen && (
-          <fieldset className="absolute bottom-full left-0 mb-2 flex w-56 flex-col gap-1 rounded-md border border-border bg-card p-2 shadow-xl">
-            <legend className="sr-only">Conmutador de capas</legend>
-            {LAYER_LABELS.map((l) => (
-              <label key={l.key} className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-xs hover:bg-accent">
-                <input
-                  type="checkbox"
-                  checked={layers[l.key]}
-                  onChange={() => setLayers((s) => ({ ...s, [l.key]: !s[l.key] }))}
-                  className="accent-harmonized"
-                />
-                <span className={cn('size-2.5 rounded-sm', l.swatch)} aria-hidden />
-                {l.label}
-              </label>
-            ))}
-          </fieldset>
-        )}
+        <span className="border-x border-border px-3 py-1.5 font-mono text-[11px] tabular-nums">
+          {year} · DOY {String(day.doy).padStart(3, '0')}
+        </span>
+        <button
+          type="button"
+          onClick={() => onDoyChange((d) => Math.min(total, d + 1))}
+          disabled={day.doy >= total}
+          className="p-2 hover:bg-accent disabled:opacity-40 focus-visible:outline-2"
+          aria-label="Día siguiente"
+        >
+          <ChevronRight className="size-4" aria-hidden />
+        </button>
       </div>
 
-      <div className="pointer-events-none absolute right-3 top-3 flex items-center gap-3 rounded-md border border-border bg-card/90 px-3 py-1.5 text-[11px] backdrop-blur-md">
-        <span className="flex items-center gap-1.5">
-          <span className="size-2.5 rounded-sm border border-modis" aria-hidden />
-          MODIS 1 km
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="size-2 rounded-sm bg-viirs/70" aria-hidden />
-          VIIRS 375 m
-        </span>
-        <span className={cn('flex items-center gap-1.5 transition-opacity', mode === 'raw' && 'opacity-40')}>
-          <span className="size-2.5 rounded-sm border border-harmonized bg-harmonized/30" aria-hidden />
-          {mode === 'h3' ? 'H3 FRP/km²' : 'Armonizado'}
-        </span>
+      <div className={cn(hud, 'absolute bottom-4 right-4 flex flex-col items-start gap-1 px-3 py-2')} aria-hidden>
+        <span className="font-mono text-[10px] text-muted-foreground">{kmBar === 1 ? '1 km' : '500 m'}</span>
+        <span className="relative block h-2 border-x border-b border-foreground" style={{ width: Math.max(24, Math.min(200, barLen / unitRatioSafe(svgRef.current))) }} />
       </div>
 
       {selection && <Inspector selection={selection} onClose={() => setSelection(null)} />}
     </div>
   )
+}
+
+function unitRatioSafe(svg: SVGSVGElement | null) {
+  if (!svg) return VB_W / 900
+  const rect = svg.getBoundingClientRect()
+  if (!rect.width) return VB_W / 900
+  return Math.min(VB_W / rect.width, VB_H / rect.height)
 }

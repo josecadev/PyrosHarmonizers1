@@ -222,3 +222,37 @@ export function severity(v: number) {
 
 export const fmt = (n: number, d = 0) =>
   n.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d })
+
+const WEEKDAY_ES = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado']
+export const MONTH_ES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
+export const MONTH_SHORT = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
+
+/** Locale-independent so server and client render identical strings. */
+export function formatDateEs(date: Date) {
+  return `${WEEKDAY_ES[date.getUTCDay()]}, ${date.getUTCDate()} de ${MONTH_ES[date.getUTCMonth()]}`
+}
+
+const SUBUNITS: Record<string, { label: string; names: string[] }> = {
+  chiquitania: {
+    label: 'Municipios',
+    names: ['San Ignacio de Velasco', 'San José de Chiquitos', 'Concepción', 'San Matías', 'Roboré', 'San Rafael'],
+  },
+  'san-ignacio': { label: 'Distritos', names: ['Santa Ana', 'San Miguel', 'Candelaria', 'San Juancito', 'Villa Fátima'] },
+  robore: { label: 'Distritos', names: ['Santiago de Chiquitos', 'Chochís', 'Aguas Calientes', 'Yororobá', 'San Lorenzo'] },
+  'san-matias': { label: 'Distritos', names: ['Santo Corazón', 'Las Petas', 'San Fernando', 'Natividad', 'Candelaria'] },
+  charagua: { label: 'Zonas', names: ['Isoso', 'Charagua Norte', 'Parapitiguasu', 'Alto Isoso', 'Bañados del Izozog'] },
+}
+
+export function getSubunitBreakdown(region: Region, day: CalendarDay) {
+  const unit = SUBUNITS[region.id] ?? SUBUNITS.chiquitania
+  const rand = mulberry32(hash(region.seed, day.doy, 13))
+  const weights = unit.names.map((_, i) => (1 / (i + 1.2)) * (0.5 + rand()))
+  const total = weights.reduce((a, b) => a + b, 0)
+  const rows = unit.names
+    .map((name, i) => {
+      const share = weights[i] / total
+      return { name, share, events: Math.round(day.events * share), frp: Math.round(day.frp * share) }
+    })
+    .sort((a, b) => b.share - a.share)
+  return { label: unit.label, rows }
+}

@@ -32,6 +32,7 @@ export interface Detection {
   lowConfidence: boolean
   frp: number
   clusterId: number
+  h3: string
 }
 
 export interface FireEvent {
@@ -150,6 +151,16 @@ function h3Index(region: Region, q: number, r: number) {
 
 const pad = (n: number) => String(n).padStart(2, '0')
 
+// Fisher-Yates consumes rand() a fixed number of times; a random sort comparator
+// does not, because JS engines call it a different number of times (SSR/CSR mismatch).
+function shuffle<T>(items: T[], rand: () => number) {
+  for (let i = items.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1))
+    ;[items[i], items[j]] = [items[j], items[i]]
+  }
+  return items
+}
+
 export function buildScene(
   region: Region,
   year: number,
@@ -220,10 +231,11 @@ export function buildScene(
         lowConfidence: mConf < 30,
         frp: Math.round((12 + rand() * 60) * 10) / 10,
         clusterId: c,
+        h3: '',
       })
 
       const nViirs = 7 + Math.floor(rand() * 3)
-      const cells = Array.from({ length: 9 }, (_, i) => i).sort(() => rand() - 0.5).slice(0, nViirs)
+      const cells = shuffle(Array.from({ length: 9 }, (_, i) => i), rand).slice(0, nViirs)
       cells.forEach((cell, vi) => {
         const scan = 0.37 + rand() * 0.05
         const track = 0.36 + rand() * 0.04
@@ -249,6 +261,7 @@ export function buildScene(
           lowConfidence: conf === 'low',
           frp: Math.round((2.5 + rand() * 18) * 10) / 10,
           clusterId: c,
+          h3: '',
         })
       })
     })
@@ -319,8 +332,9 @@ export function buildScene(
 
   const hasViirs = detections.some((d) => d.sensor === 'VIIRS')
   for (const d of detections) {
-    if (hasViirs && d.sensor === 'MODIS') continue
     const { q, r } = pointToHex(d.x, d.y)
+    d.h3 = h3Index(region, q, r)
+    if (hasViirs && d.sensor === 'MODIS') continue
     const cell = hexMap.get(`${q},${r}`)
     if (!cell) continue
     cell.count += 1

@@ -3,13 +3,16 @@
 import { useMemo, useState } from 'react'
 import { REGIONS, getCalendar, getHistory, getKpis, type Filters, type Mode } from '@/lib/pyros/data'
 import { buildScene } from '@/lib/pyros/scene'
+import { AppSidebar, type View } from './app-sidebar'
 import { ControlHeader } from './control-header'
-import { KpiPanel } from './kpi-panel'
 import { MapViewer } from './map-viewer'
-import { AnalyticsPanel } from './analytics-panel'
-import { BurnCalendar } from './burn-calendar'
+import { CalendarView } from './calendar-view'
+import { LabView } from './lab-view'
+import { DataExplorer } from './data-explorer'
 
 export function Dashboard() {
+  const [view, setView] = useState<View>('map')
+  const [collapsed, setCollapsed] = useState(false)
   const [mode, setMode] = useState<Mode>('raw')
   const [regionId, setRegionId] = useState(REGIONS[0].id)
   const [year, setYear] = useState(2024)
@@ -28,35 +31,51 @@ export function Dashboard() {
   )
 
   return (
-    <div className="flex min-h-screen flex-col bg-background text-foreground lg:h-screen lg:overflow-hidden">
-      <ControlHeader
-        mode={mode}
-        onModeChange={setMode}
-        regionId={regionId}
-        onRegionChange={setRegionId}
-        filters={filters}
-        onFiltersChange={setFilters}
-        region={region}
-        year={year}
-        kpis={kpis}
-        scene={scene}
-        calendar={calendar}
-      />
-      <main className="flex flex-1 flex-col gap-px bg-border lg:min-h-0 lg:flex-row">
-        <KpiPanel mode={mode} kpis={kpis} year={year} region={region} />
-        <section aria-label="Visor geoespacial" className="relative flex min-h-[520px] flex-1 flex-col bg-canvas lg:min-h-0">
-          <MapViewer mode={mode} scene={scene} region={region} day={day} year={year} />
-        </section>
-        <AnalyticsPanel mode={mode} history={history} year={year} scene={scene} kpis={kpis} filters={filters} />
-      </main>
-      <BurnCalendar
-        calendar={calendar}
-        year={year}
-        onYearChange={setYear}
-        doy={safeDoy}
-        onDoyChange={setDoy}
-        mode={mode}
-      />
+    <div className="flex min-h-screen bg-background text-foreground lg:h-screen lg:overflow-hidden">
+      <AppSidebar view={view} onViewChange={setView} collapsed={collapsed} onToggle={() => setCollapsed((c) => !c)} />
+      <div className="flex min-w-0 flex-1 flex-col">
+        <ControlHeader
+          view={view}
+          mode={mode}
+          onModeChange={setMode}
+          regionId={regionId}
+          onRegionChange={setRegionId}
+          filters={filters}
+          onFiltersChange={setFilters}
+          year={year}
+          kpis={kpis}
+        />
+        <main className="flex min-h-0 flex-1 flex-col">
+          {view === 'map' && (
+            <MapViewer
+              mode={mode}
+              scene={scene}
+              region={region}
+              day={day}
+              year={year}
+              total={calendar.length}
+              onDoyChange={setDoy}
+            />
+          )}
+          {view === 'calendar' && (
+            <CalendarView
+              calendar={calendar}
+              year={year}
+              onYearChange={setYear}
+              doy={safeDoy}
+              onDoyChange={setDoy}
+              mode={mode}
+              region={region}
+              scene={scene}
+              onOpenMap={() => setView('map')}
+            />
+          )}
+          {view === 'lab' && <LabView mode={mode} history={history} year={year} scene={scene} kpis={kpis} filters={filters} />}
+          {view === 'data' && (
+            <DataExplorer mode={mode} region={region} year={year} kpis={kpis} scene={scene} calendar={calendar} day={day} />
+          )}
+        </main>
+      </div>
     </div>
   )
 }
