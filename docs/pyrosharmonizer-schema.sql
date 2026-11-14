@@ -637,7 +637,7 @@ BEGIN
             RETURN h3_result;
         EXCEPTION WHEN OTHERS THEN
             NULL;
-        END IF;
+        END;
     END IF;
 
     -- Algoritmo determinista de respaldo compatible (Fallback Hexagonal)

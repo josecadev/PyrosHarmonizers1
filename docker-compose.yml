@@ -1,0 +1,32 @@
+services:
+  postgis:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: pyros_user
+      POSTGRES_PASSWORD: pyros_password
+      POSTGRES_DB: pyrosharmonizer_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pyros_pgdata:/var/lib/postgresql/data
+      - ./docs/pyrosharmonizer-schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pyros_user -d pyrosharmonizer_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://pyros_user:pyros_password@postgis:5432/pyrosharmonizer_db
+    depends_on:
+      postgis:
+        condition: service_healthy
+
+volumes:
+  pyros_pgdata:
