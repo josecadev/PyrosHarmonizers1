@@ -1,6 +1,6 @@
 # ==============================================================================
 # PYROSHARMONIZER BACKEND — DOCKERFILE
-# Python 3.12 + FastAPI + PostGIS dependencies
+# Python 3.12 + FastAPI + PostGIS dependencies (Port 5000)
 # ==============================================================================
 
 FROM python:3.12-slim AS base

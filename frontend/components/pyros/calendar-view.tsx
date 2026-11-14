@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowUpRight, ChevronDown, ChevronLeft, ChevronRight, Moon, Pause, Play, Sun } from 'lucide-react'
+import { AlertTriangle, ArrowUpRight, ChevronDown, ChevronLeft, ChevronRight, Moon, Pause, Play, Sun } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
   HFII_LEVELS,
@@ -9,6 +9,7 @@ import {
   YEARS,
   fmt,
   formatDateEs,
+  getMonthlyMatrix,
   getSubunitBreakdown,
   type CalendarDay,
   type Mode,
@@ -72,9 +73,16 @@ export function CalendarView({ calendar, year, onYearChange, doy, onDoyChange, m
     return { sums, max, seasonShare: sums.slice(6, 10).reduce((a, s) => a + s.events, 0) / Math.max(1, all) }
   }, [calendar])
 
-  const day = calendar[doy - 1]
+  const matrix = useMemo(() => getMonthlyMatrix(region), [region])
+
+  const day = calendar[doy - 1] ?? calendar[0]
   const preview = hovered !== null ? calendar[hovered - 1] : null
   const breakdown = useMemo(() => getSubunitBreakdown(region, day), [region, day])
+
+  const currentMonthIdx = day.date.getUTCMonth()
+  const yearRow = matrix.cells[year - YEARS[0]] ?? matrix.cells[0]
+  const activeMonthCell = yearRow?.[currentMonthIdx]
+  const onsetDelta = matrix.onsetDeltaDays[year] ?? 0
 
   const orbit = useMemo(() => {
     const split = { D: { det: 0, frp: 0, ev: 0 }, N: { det: 0, frp: 0, ev: 0 } }
@@ -102,7 +110,24 @@ export function CalendarView({ calendar, year, onYearChange, doy, onDoyChange, m
             <Eyebrow>Intensidad diaria HFII · {region.name}</Eyebrow>
             <h2 className="text-2xl font-medium tracking-tight text-balance">Temporada de quemas {year}</h2>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {activeMonthCell && (
+              <span
+                className={cn(
+                  'mr-2 flex items-center gap-1.5 border px-2.5 py-1 font-mono text-[11px]',
+                  activeMonthCell.alertLevel === 'RED'
+                    ? 'border-viirs/60 bg-viirs/10 text-viirs'
+                    : activeMonthCell.alertLevel === 'ORANGE'
+                      ? 'border-amber-400/50 bg-amber-400/10 text-amber-300'
+                      : 'border-border text-muted-foreground',
+                )}
+              >
+                {activeMonthCell.zScore >= 1.5 && <AlertTriangle className="size-3.5 shrink-0" aria-hidden />}
+                Anomalía {MONTH_SHORT[currentMonthIdx]} {year}: Z={activeMonthCell.zScore >= 0 ? `+${activeMonthCell.zScore}` : activeMonthCell.zScore}σ (
+                {activeMonthCell.alertLevel}) · Inicio{' '}
+                {onsetDelta < 0 ? `${Math.abs(onsetDelta)}d adelantado` : onsetDelta > 0 ? `+${onsetDelta}d` : 'en media histórica'}
+              </span>
+            )}
             <button
               type="button"
               onClick={() => onYearChange(Math.max(YEARS[0], year - 1))}
@@ -180,7 +205,7 @@ export function CalendarView({ calendar, year, onYearChange, doy, onDoyChange, m
                           key={d.doy}
                           type="button"
                           role="gridcell"
-                          aria-label={`${d.iso}: HFII ${d.hfii}, ${HFII_LEVELS[d.level].label}`}
+                          aria-label={`${d.iso}: HFII ${d.hfii}, ${HFII_LEVELS[d.level].label}, Z=${d.zScore}`}
                           aria-selected={d.doy === doy}
                           onMouseEnter={() => setHovered(d.doy)}
                           onFocus={() => setHovered(d.doy)}
@@ -239,15 +264,96 @@ export function CalendarView({ calendar, year, onYearChange, doy, onDoyChange, m
           </label>
           <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
             {HFII_LEVELS.map((l, i) => (
-              <span key={l.label} className="flex items-center gap-1.5" title={`${l.label} (${l.range})`}>
+              <span key={l.label} className="flex items-center gap-1.5" title={`${l.label} (${l.range} · ${l.percentile})`}>
                 <span className={cn('size-3 rounded-[2px]', LEVEL_BG[i])} aria-hidden />
-                {l.label}
+                {l.label} ({l.percentile})
               </span>
             ))}
           </div>
           <p className="w-full font-mono text-[11px] text-muted-foreground lg:w-auto" aria-live="polite">
-            {preview ? `${preview.iso} · HFII ${preview.hfii} · clic para seleccionar` : '\u00a0'}
+            {preview ? `${preview.iso} · HFII ${preview.hfii} · Z=${preview.zScore} · clic para seleccionar` : '\u00a0'}
           </p>
+        </div>
+      </Frame>
+
+      {/* Matriz Multianual 2000-2026 (Ticket #4.2 / FR-014 / FR-016) */}
+      <Frame className="flex flex-col gap-4 p-6">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <div className="flex flex-col gap-1">
+            <Eyebrow>Matriz Multianual 2000–2026 · Anomalías Estadísticas (Z-Score)</Eyebrow>
+            <h3 className="text-[15px] font-medium tracking-tight">
+              Evolución histórica mensual y detección de temporadas extremas (Z ≥ +2.0σ)
+            </h3>
+          </div>
+          <span className="font-mono text-[11px] text-muted-foreground">
+            {matrix.anomalies.filter((a) => a.alertLevel === 'RED').length} meses con alerta ROJA (Z ≥ 2.0σ) en 27 años
+          </span>
+        </div>
+
+        <div className="scrollbar-thin overflow-x-auto pb-1">
+          <div className="flex min-w-[820px] flex-col gap-1">
+            <div className="flex items-center gap-1 pl-12 font-mono text-[10px] text-muted-foreground">
+              {YEARS.map((y) => (
+                <button
+                  key={y}
+                  type="button"
+                  onClick={() => onYearChange(y)}
+                  className={cn(
+                    'flex-1 text-center transition-colors hover:text-foreground',
+                    y === year && 'font-bold text-harmonized underline',
+                  )}
+                >
+                  {String(y).slice(2)}
+                </button>
+              ))}
+            </div>
+            <div className="flex flex-col gap-1" role="grid" aria-label="Matriz de calor multianual 2000-2026">
+              {MONTH_SHORT.map((mName, mIdx) => (
+                <div key={mName} role="row" className="flex items-center gap-1">
+                  <span
+                    className={cn(
+                      'w-11 shrink-0 font-mono text-[10px]',
+                      mIdx >= 6 && mIdx <= 9 ? 'font-medium text-foreground' : 'text-muted-foreground',
+                    )}
+                  >
+                    {mName}
+                  </span>
+                  <div className="flex flex-1 gap-1">
+                    {matrix.cells.map((yRow) => {
+                      const cell = yRow[mIdx]
+                      const selected = cell.year === year && currentMonthIdx === mIdx
+                      return (
+                        <button
+                          key={`${cell.year}-${mIdx}`}
+                          type="button"
+                          role="gridcell"
+                          title={`${mName} ${cell.year}: HFII medio ${cell.hfiiMean}, máx ${cell.hfiiMax}, ${cell.events} eventos · Z=${cell.zScore >= 0 ? '+' : ''}${cell.zScore}σ (${cell.alertLevel})`}
+                          onClick={() => {
+                            setPlaying(false)
+                            onYearChange(cell.year)
+                            onDoyChange(cell.peakDoy)
+                          }}
+                          className={cn(
+                            'h-4 flex-1 rounded-[2px] transition-all',
+                            LEVEL_BG[cell.level],
+                            cell.alertLevel === 'RED' && 'ring-1 ring-viirs',
+                            selected && 'outline outline-2 outline-offset-1 outline-harmonized',
+                          )}
+                        />
+                      )
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3 font-mono text-[11px] text-muted-foreground">
+          <span>Haz clic en cualquier celda (Mes × Año) para cargar su día pico en el calendario y visor espacial.</span>
+          <span className="flex items-center gap-2">
+            <span className="inline-block size-2.5 rounded-[2px] bg-heat-4 ring-1 ring-viirs" aria-hidden />
+            Borde rojo: Alerta de Anomalía Estadística Z ≥ +2.0σ (p. ej. Ago–Sep 2010, 2019, 2024)
+          </span>
         </div>
       </Frame>
 
@@ -264,10 +370,10 @@ export function CalendarView({ calendar, year, onYearChange, doy, onDoyChange, m
             </p>
             <span className={cn('mb-2 flex items-center gap-1.5 border border-rule px-2 py-0.5 text-xs')}>
               <span className={cn('size-2 rounded-[1px]', LEVEL_BG[day.level])} aria-hidden />
-              {HFII_LEVELS[day.level].label}
+              {HFII_LEVELS[day.level].label} ({day.severityCode})
             </span>
           </div>
-          <dl className="grid grid-cols-2 border-t border-border pt-4 font-mono text-[11px]">
+          <dl className="grid grid-cols-2 gap-y-3 border-t border-border pt-4 font-mono text-[11px]">
             <div className="flex flex-col gap-1">
               <dt className="text-muted-foreground">{unitLabel} armonizados</dt>
               <dd className="text-lg text-foreground">{unitValue(day.events)}</dd>
@@ -276,6 +382,16 @@ export function CalendarView({ calendar, year, onYearChange, doy, onDoyChange, m
               <dt className="text-muted-foreground">FRP calibrado</dt>
               <dd className="text-lg text-foreground">
                 {fmt(day.frp)} <span className="text-[11px] text-muted-foreground">MW</span>
+              </dd>
+            </div>
+            <div className="flex flex-col gap-1 border-t border-border pt-3">
+              <dt className="text-muted-foreground">Percentil histórico</dt>
+              <dd className="text-sm text-foreground">P{Math.round(day.percentileRank * 100)} ({HFII_LEVELS[day.level].percentile})</dd>
+            </div>
+            <div className="flex flex-col gap-1 border-l border-t border-border pl-4 pt-3">
+              <dt className="text-muted-foreground">Anomalía Z-Score</dt>
+              <dd className={cn('text-sm', day.zScore >= 2 ? 'text-viirs' : 'text-foreground')}>
+                {day.zScore >= 0 ? `+${day.zScore}` : day.zScore}σ
               </dd>
             </div>
           </dl>
@@ -294,7 +410,7 @@ export function CalendarView({ calendar, year, onYearChange, doy, onDoyChange, m
             <Eyebrow>Pasada orbital</Eyebrow>
             <h3 className="text-[15px] font-medium tracking-tight">Actividad diurna frente a nocturna</h3>
             <p className="text-[13px] leading-relaxed text-muted-foreground">
-              Las pasadas nocturnas (01:30 / 13:30 local) capturan fuegos persistentes; las diurnas, el pico de propagación.
+              Las pasadas nocturnas (01:30 / 13:30 local, γ_solar = 0.72) capturan fuegos persistentes; las diurnas (γ_solar = 1.00), el pico de propagación.
             </p>
           </div>
           {(['D', 'N'] as const).map((k) => {
@@ -305,7 +421,7 @@ export function CalendarView({ calendar, year, onYearChange, doy, onDoyChange, m
                 <div className="flex items-center justify-between text-[13px]">
                   <span className="flex items-center gap-2">
                     {k === 'D' ? <Sun className="size-3.5 text-modis" aria-hidden /> : <Moon className="size-3.5 text-platinum" aria-hidden />}
-                    {k === 'D' ? 'Diurna' : 'Nocturna'}
+                    {k === 'D' ? 'Diurna (γ = 1.00)' : 'Nocturna (γ = 0.72)'}
                   </span>
                   <span className="font-mono text-[11px] tabular-nums">{fmt(pct, 0)}%</span>
                 </div>

@@ -1,11 +1,12 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { ArrowRight, ChevronLeft, ChevronRight, Download, FileJson, FileSpreadsheet, FileText } from 'lucide-react'
+import { ArrowRight, ChevronLeft, ChevronRight, Download, FileCode2, FileJson, FileSpreadsheet, FileText, Lock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { MODE_LABEL, fmt, type CalendarDay, type Kpis, type Mode, type Region } from '@/lib/pyros/data'
+import { getRoleSpec, type RbacRole } from '@/lib/pyros/i18n-rbac'
 import type { Scene } from '@/lib/pyros/scene'
-import { exportCsv, exportGeoJson, exportPdf } from '@/lib/pyros/exporters'
+import { exportAuditJson, exportCsv, exportGeoJson, exportPdf } from '@/lib/pyros/exporters'
 import { Eyebrow, Frame } from './ui'
 
 interface Props {
@@ -16,14 +17,16 @@ interface Props {
   scene: Scene
   calendar: CalendarDay[]
   day: CalendarDay
+  role?: RbacRole
 }
 
 const PAGE = 14
 const clusterId = (date: string, id: number) => `PH-${date.replaceAll('-', '')}-${String(id).padStart(2, '0')}`
 
-export function DataExplorer({ mode, region, year, kpis, scene, calendar, day }: Props) {
+export function DataExplorer({ mode, region, year, kpis, scene, calendar, day, role = 'analyst' }: Props) {
   const [page, setPage] = useState(0)
   const groupByH3 = mode === 'h3'
+  const roleSpec = getRoleSpec(role)
 
   const rows = useMemo(() => {
     const list = [...scene.detections]
@@ -43,33 +46,50 @@ export function DataExplorer({ mode, region, year, kpis, scene, calendar, day }:
     {
       id: 'geojson',
       icon: FileJson,
-      title: 'Capa espacial GeoJSON',
+      title: 'Capa espacial GeoJSON (RFC 7946)',
       body:
         mode === 'raw'
-          ? 'Huellas scan × track de cada detección cruda del día activo.'
+          ? 'Huellas scan × track de cada detección cruda del día activo con factores ψ y γ_solar.'
           : mode === 'dbscan'
-            ? 'Envolventes convexas de los incendios unificados por ST-DBSCAN.'
-            : 'Polígonos hexagonales H3 res. 8 con densidad FRP.',
+            ? 'Envolventes convexas ST-DBSCAN con event_id, régimen de detección y puntos hijos.'
+            : `Polígonos hexagonales Uber H3 Res. ${kpis.h3Res} con densidad HFII (MW/km²).`,
       file: `pyrosharmonizer_${region.id}_${year}_${mode}.geojson`,
       meta: `${mode === 'raw' ? scene.detections.length : mode === 'dbscan' ? scene.events.length : scene.activeHexes.length} features · EPSG:4326`,
+      allowed: roleSpec.canExportGeoJson,
+      minRole: 'Operador / Analista',
       run: () => exportGeoJson(ctx),
     },
     {
       id: 'csv',
       icon: FileSpreadsheet,
-      title: 'Serie temporal CSV',
-      body: 'HFII, eventos armonizados y FRP calibrado para cada día del año.',
+      title: 'Serie temporal CSV (ESC-EXP-002)',
+      body: '8 columnas canónicas: acq_date, municipio, raw_modis_foci, raw_viirs_foci, harmonized_events_count, raw_total_frp, calibrated_hfii_mw, severity_index.',
       file: `pyrosharmonizer_${region.id}_${year}_armonizado.csv`,
-      meta: `${calendar.length} filas · 6 columnas`,
+      meta: `${calendar.length} filas · 8 columnas canónicas`,
+      allowed: true,
+      minRole: 'Público',
       run: () => exportCsv(ctx),
+    },
+    {
+      id: 'audit-json',
+      icon: FileCode2,
+      title: 'Auditoría Científica JSON (ESC-EXP-003)',
+      body: 'Certificación Test de Chow (p-value 2012), parámetros α/β/κ/ψ/γ_solar, anomalías estáticas filtradas y serie anual completa.',
+      file: `pyrosharmonizer_${region.id}_${year}_auditoria.json`,
+      meta: 'Esquema v2.0.0 · Trazabilidad completa',
+      allowed: roleSpec.canExportAuditJson,
+      minRole: 'Analista / Admin',
+      run: () => exportAuditJson(ctx),
     },
     {
       id: 'pdf',
       icon: FileText,
       title: 'Reporte ejecutivo PDF',
-      body: 'Resumen de indicadores y recomendación operativa para brigadas de emergencia.',
+      body: 'Resumen de indicadores, certificación estadística Test de Chow y recomendación operativa para brigadas de emergencia.',
       file: `reporte_${region.id}_${year}.pdf`,
       meta: 'Imprimir / guardar como PDF',
+      allowed: true,
+      minRole: 'Público',
       run: () => exportPdf(ctx),
     },
   ]
@@ -82,7 +102,9 @@ export function DataExplorer({ mode, region, year, kpis, scene, calendar, day }:
             <Eyebrow>
               Registros FIRMS · {day.iso} · {MODE_LABEL[mode]}
             </Eyebrow>
-            <h2 className="text-xl font-medium tracking-tight">{groupByH3 ? 'Asignación de detecciones a celdas H3' : 'De registros crudos a clústeres armonizados'}</h2>
+            <h2 className="text-xl font-medium tracking-tight">
+              {groupByH3 ? `Asignación de detecciones a celdas H3 (Res. ${kpis.h3Res})` : 'De registros crudos a clústeres armonizados'}
+            </h2>
           </div>
           <p className="flex items-center gap-3 font-mono text-[13px]">
             <span className="text-viirs">{fmt(rows.length)} registros</span>
@@ -94,12 +116,33 @@ export function DataExplorer({ mode, region, year, kpis, scene, calendar, day }:
         </div>
 
         <div className="scrollbar-thin overflow-x-auto">
-          <table className="w-full min-w-[860px] border-collapse text-left font-mono text-[11px]">
+          <table className="w-full min-w-[940px] border-collapse text-left font-mono text-[11px]">
             <caption className="sr-only">Detecciones del día {day.iso}</caption>
             <thead>
               <tr className="border-b border-border text-muted-foreground">
-                {['id', 'sensor', 'satellite', 'latitude', 'longitude', 'acq_time', 'dn', 'conf', 'frp', groupByH3 ? 'h3_index' : 'cluster_id'].map((h, i) => (
-                  <th key={h} scope="col" className={cn('px-4 py-2.5 font-normal uppercase tracking-wider', i === 9 && 'text-foreground', (i === 3 || i === 4 || i === 8) && 'text-right')}>
+                {[
+                  'id',
+                  'sensor',
+                  'satellite',
+                  'latitude',
+                  'longitude',
+                  'acq_time',
+                  'dn',
+                  'conf',
+                  'frp (mw)',
+                  'ψ_area',
+                  'γ_solar',
+                  groupByH3 ? 'h3_index' : 'cluster_id',
+                ].map((h, i) => (
+                  <th
+                    key={h}
+                    scope="col"
+                    className={cn(
+                      'px-4 py-2.5 font-normal uppercase tracking-wider',
+                      i === 11 && 'text-foreground',
+                      (i === 3 || i === 4 || i === 8 || i === 9 || i === 10) && 'text-right',
+                    )}
+                  >
                     {h}
                   </th>
                 ))}
@@ -126,6 +169,8 @@ export function DataExplorer({ mode, region, year, kpis, scene, calendar, day }:
                     <td className="px-4 py-2">{d.daynight}</td>
                     <td className="px-4 py-2 text-muted-foreground">{d.confidence}</td>
                     <td className="px-4 py-2 text-right tabular-nums">{d.frp.toFixed(1)}</td>
+                    <td className="px-4 py-2 text-right tabular-nums text-muted-foreground">{d.areaCorrection.toFixed(2)}</td>
+                    <td className="px-4 py-2 text-right tabular-nums text-muted-foreground">{d.solarGamma.toFixed(2)}</td>
                     <td className="px-4 py-2">
                       <span className={cn(newGroup ? 'text-foreground' : 'text-muted-foreground/60')}>{newGroup ? group : '└ ' + group}</span>
                     </td>
@@ -134,7 +179,7 @@ export function DataExplorer({ mode, region, year, kpis, scene, calendar, day }:
               })}
               {slice.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="px-4 py-10 text-center font-sans text-[13px] text-muted-foreground">
+                  <td colSpan={12} className="px-4 py-10 text-center font-sans text-[13px] text-muted-foreground">
                     Sin detecciones para este día y filtros. Selecciona un día de temporada en el Calendario.
                   </td>
                 </tr>
@@ -175,12 +220,12 @@ export function DataExplorer({ mode, region, year, kpis, scene, calendar, day }:
 
       <section aria-labelledby="export-title" className="flex flex-col gap-4">
         <div className="flex flex-col gap-1.5">
-          <Eyebrow>Centro de exportación</Eyebrow>
+          <Eyebrow>Centro de exportación estandarizado (ESC-EXP-001..003)</Eyebrow>
           <h2 id="export-title" className="text-xl font-medium tracking-tight">
-            Descargar productos armonizados
+            Descargar productos armonizados y auditoría científica
           </h2>
         </div>
-        <div className="grid gap-6 md:grid-cols-3">
+        <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
           {exportsList.map((e) => (
             <Frame key={e.id} as="article" className="flex flex-col gap-4 p-6">
               <e.icon className="size-5 text-platinum" aria-hidden />
@@ -196,11 +241,12 @@ export function DataExplorer({ mode, region, year, kpis, scene, calendar, day }:
               </dl>
               <button
                 type="button"
+                disabled={!e.allowed}
                 onClick={e.run}
-                className="mt-auto flex items-center justify-center gap-2 border border-rule px-4 py-2 text-[13px] transition-colors hover:border-foreground hover:bg-foreground hover:text-background focus-visible:outline-2"
+                className="mt-auto flex items-center justify-center gap-2 border border-rule px-4 py-2 text-[13px] transition-colors hover:border-foreground hover:bg-foreground hover:text-background focus-visible:outline-2 disabled:cursor-not-allowed disabled:opacity-45"
               >
-                <Download className="size-3.5" aria-hidden />
-                Exportar
+                {e.allowed ? <Download className="size-3.5" aria-hidden /> : <Lock className="size-3.5" aria-hidden />}
+                {e.allowed ? 'Exportar' : `Requiere ${e.minRole}`}
               </button>
             </Frame>
           ))}

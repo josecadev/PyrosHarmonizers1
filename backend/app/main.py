@@ -5,16 +5,27 @@ NASA International Space Apps Challenge 2026 — Sede UCB Santa Cruz
 """
 
 import sys
+from pathlib import Path
+
+# Add backend directory and repo root to sys.path
+backend_dir = Path(__file__).resolve().parent.parent
+repo_root = backend_dir.parent
+for p in [str(backend_dir), str(repo_root)]:
+    if p not in sys.path:
+        sys.path.insert(0, p)
+
 import logging
 from datetime import datetime, timezone
 from typing import Dict, Any
-from fastapi import FastAPI, Depends, status
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from sqlalchemy.orm import Session
 
-from app.core.config import settings
-from app.db.session import get_db, check_db_connection
+try:
+    from backend.app.api import api_router
+    from backend.app.errors import ApiError, api_error_handler
+except ImportError:
+    from app.api import api_router
+    from app.errors import ApiError, api_error_handler
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -28,7 +39,9 @@ app = FastAPI(
     openapi_url="/openapi.json",
 )
 
-# Open CORS configuration for Frontend consumption (Localhost, Vercel, etc.)
+app.add_exception_handler(ApiError, api_error_handler)
+
+# Open CORS configuration for Frontend consumption (Localhost, Next.js, Vercel, etc.)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -37,7 +50,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
+# Root information endpoint
 @app.get("/", tags=["Root"])
 def root() -> Dict[str, Any]:
     return {
@@ -47,20 +60,22 @@ def root() -> Dict[str, Any]:
         "version": "1.0.0",
         "documentation": "/docs",
         "health": "/health",
+        "api_v1": "/api/v1",
     }
 
 
+# Top-level health check alias
 @app.get("/health", tags=["System"])
-@app.get("/api/v1/health", tags=["System"])
-def health_check() -> Dict[str, Any]:
-    db_ok = check_db_connection()
+def root_health_check() -> Dict[str, Any]:
     return {
-        "status": "healthy" if db_ok else "degraded",
-        "database": "connected" if db_ok else "unreachable",
+        "status": "healthy",
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "nasa_firms_key_configured": bool(settings.active_map_key),
         "version": "1.0.0",
     }
+
+
+# Include all REST API v1 routes (regions, hotspots, harmonized, calendar, export, health)
+app.include_router(api_router, prefix="/api/v1")
 
 
 if __name__ == "__main__":
