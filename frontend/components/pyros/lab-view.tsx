@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import {
   Area,
   Bar,
@@ -20,9 +20,15 @@ import {
 } from 'recharts'
 import { cn } from '@/lib/utils'
 import {
+  CHOW_TEST_METRICS,
   FRP_INTERCEPT,
   FRP_R2,
   FRP_SLOPE,
+  GAMMA_DAY,
+  GAMMA_NIGHT,
+  HFII_ALPHA,
+  HFII_BETA,
+  HFII_KAPPA,
   VIIRS_START,
   fmt,
   mulberry32,
@@ -80,6 +86,16 @@ const SPAN_START = 2000
 const SPAN_END = 2026
 
 export function LabView({ mode, history, year, scene, kpis, filters }: Props) {
+  const [visibleCurves, setVisibleCurves] = useState({
+    modis: true,
+    viirs: true,
+    raw: true,
+    harmonized: true,
+  })
+
+  const toggleCurve = (key: keyof typeof visibleCurves) =>
+    setVisibleCurves((prev) => ({ ...prev, [key]: !prev[key] }))
+
   const scatter = useMemo(() => {
     const rand = mulberry32(year * 31 + kpis.events)
     return Array.from({ length: 90 }, () => {
@@ -124,20 +140,57 @@ export function LabView({ mode, history, year, scene, kpis, filters }: Props) {
       <div className="grid gap-6 lg:grid-cols-12">
         <Cell2
           className="lg:col-span-8"
-          eyebrow="Serie 2000–2026 · focos / eventos por año"
-          title='Corrección del "Efecto 2012"'
-          body="Con la entrada de Suomi-NPP en 2012, la suma cruda MODIS + VIIRS salta artificialmente porque un mismo incendio se registra en decenas de píxeles de 375 m. La curva armonizada fusiona esas detecciones y restaura la continuidad con la línea base MODIS."
+          eyebrow="Serie 2000–2026 · 4 Series Comparativas (Ticket #4.3)"
+          title='Corrección del "Efecto 2012" y Certificación Test de Chow'
+          body="Con la entrada de Suomi-NPP en 2012, la suma cruda MODIS + VIIRS salta artificialmente (> 3.4x) porque un mismo incendio se registra en decenas de píxeles de 375 m. La curva armonizada fusiona esas detecciones y restaura la continuidad estadística con la línea base MODIS."
         >
-          <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs">
-            <span className={cn('flex items-center gap-2', !raw && 'text-muted-foreground')}>
-              <span className="h-0 w-5 border-t-2 border-dashed border-viirs" aria-hidden />
-              Crudo MODIS + VIIRS
-            </span>
-            <span className={cn('flex items-center gap-2', raw && 'text-muted-foreground')}>
-              <span className="h-0 w-5 border-t-2 border-harmonized" aria-hidden />
-              Armonizado
-            </span>
+          <div className="flex flex-wrap gap-2 text-xs">
+            <button
+              type="button"
+              onClick={() => toggleCurve('modis')}
+              className={cn(
+                'flex items-center gap-2 border px-2.5 py-1 font-mono text-[11px] transition-opacity',
+                visibleCurves.modis ? 'border-modis/50 text-foreground' : 'border-border text-muted-foreground opacity-50',
+              )}
+            >
+              <span className="h-0.5 w-4 bg-modis" aria-hidden />
+              (A) MODIS 1 km
+            </button>
+            <button
+              type="button"
+              onClick={() => toggleCurve('viirs')}
+              className={cn(
+                'flex items-center gap-2 border px-2.5 py-1 font-mono text-[11px] transition-opacity',
+                visibleCurves.viirs ? 'border-amber-400/50 text-foreground' : 'border-border text-muted-foreground opacity-50',
+              )}
+            >
+              <span className="h-0.5 w-4 bg-amber-400" aria-hidden />
+              (B) VIIRS 375 m
+            </button>
+            <button
+              type="button"
+              onClick={() => toggleCurve('raw')}
+              className={cn(
+                'flex items-center gap-2 border px-2.5 py-1 font-mono text-[11px] transition-opacity',
+                visibleCurves.raw ? 'border-viirs/50 text-foreground' : 'border-border text-muted-foreground opacity-50',
+              )}
+            >
+              <span className="h-0 w-4 border-t-2 border-dashed border-viirs" aria-hidden />
+              (C) Suma Cruda
+            </button>
+            <button
+              type="button"
+              onClick={() => toggleCurve('harmonized')}
+              className={cn(
+                'flex items-center gap-2 border px-2.5 py-1 font-mono text-[11px] transition-opacity',
+                visibleCurves.harmonized ? 'border-harmonized/50 text-foreground' : 'border-border text-muted-foreground opacity-50',
+              )}
+            >
+              <span className="h-0 w-4 border-t-2 border-harmonized" aria-hidden />
+              (D) Serie Armonizada
+            </button>
           </div>
+
           <div className="h-72">
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={history} margin={{ top: 10, right: 8, left: -12, bottom: 0 }}>
@@ -153,25 +206,60 @@ export function LabView({ mode, history, year, scene, kpis, filters }: Props) {
                 <ReferenceArea x1={2012} x2={2026} fill="var(--viirs)" fillOpacity={raw ? 0.05 : 0.02} />
                 <ReferenceLine x={2012} stroke="var(--viirs)" strokeDasharray="2 3" label={{ value: 'S-NPP 2012', position: 'insideTopLeft', fontSize: 10, fill: 'var(--viirs)' }} />
                 <ReferenceLine x={year} stroke="var(--foreground)" strokeOpacity={0.4} />
-                <Tooltip contentStyle={chartTooltip} labelStyle={{ color: 'var(--muted-foreground)' }} formatter={(v, name) => [fmt(Number(v)), name === 'raw' ? 'Crudo' : 'Armonizado']} />
-                <Area type="monotone" dataKey="harmonized" stroke="var(--harmonized)" strokeWidth={1.75} fill="url(#labHarm)" strokeOpacity={raw ? 0.45 : 1} isAnimationActive={false} />
-                <Line type="monotone" dataKey="raw" stroke="var(--viirs)" strokeWidth={1.5} strokeDasharray="4 3" dot={false} strokeOpacity={raw ? 1 : 0.5} isAnimationActive={false} />
+                <Tooltip
+                  contentStyle={chartTooltip}
+                  labelStyle={{ color: 'var(--muted-foreground)' }}
+                  formatter={(v, name) => [
+                    fmt(Number(v)),
+                    name === 'raw'
+                      ? '(C) Suma Cruda'
+                      : name === 'harmonized'
+                        ? '(D) Armonizado'
+                        : name === 'modis'
+                          ? '(A) MODIS Crudo'
+                          : '(B) VIIRS Crudo',
+                  ]}
+                />
+                {visibleCurves.harmonized && (
+                  <Area
+                    type="monotone"
+                    dataKey="harmonized"
+                    stroke="var(--harmonized)"
+                    strokeWidth={1.75}
+                    fill="url(#labHarm)"
+                    isAnimationActive={false}
+                  />
+                )}
+                {visibleCurves.modis && (
+                  <Line type="monotone" dataKey="modis" stroke="var(--modis)" strokeWidth={1.35} dot={false} isAnimationActive={false} />
+                )}
+                {visibleCurves.viirs && (
+                  <Line type="monotone" dataKey="viirs" stroke="#fbbf24" strokeWidth={1.35} strokeDasharray="2 2" dot={false} isAnimationActive={false} />
+                )}
+                {visibleCurves.raw && (
+                  <Line type="monotone" dataKey="raw" stroke="var(--viirs)" strokeWidth={1.5} strokeDasharray="4 3" dot={false} isAnimationActive={false} />
+                )}
               </ComposedChart>
             </ResponsiveContainer>
           </div>
+
           {yearPoint && (
-            <dl className="grid grid-cols-3 border-t border-border pt-4 font-mono text-[11px]">
+            <dl className="grid grid-cols-2 gap-y-3 border-t border-border pt-4 font-mono text-[11px] sm:grid-cols-4">
               <div className="flex flex-col gap-1">
-                <dt className="text-muted-foreground">{year} crudo</dt>
+                <dt className="text-muted-foreground">{year} crudo (M+V)</dt>
                 <dd className="text-lg text-viirs">{fmt(yearPoint.raw)}</dd>
               </div>
               <div className="flex flex-col gap-1 border-l border-border pl-4">
                 <dt className="text-muted-foreground">armonizado</dt>
-                <dd className="text-lg">{fmt(yearPoint.harmonized)}</dd>
+                <dd className="text-lg text-harmonized">{fmt(yearPoint.harmonized)}</dd>
+              </div>
+              <div className="flex flex-col gap-1 sm:border-l sm:border-border sm:pl-4">
+                <dt className="text-muted-foreground">Test de Chow (Crudo)</dt>
+                <dd className="text-sm text-viirs">p = {CHOW_TEST_METRICS.pValueRaw} (Ruptura)</dd>
               </div>
               <div className="flex flex-col gap-1 border-l border-border pl-4">
-                <dt className="text-muted-foreground">factor de sesgo</dt>
-                <dd className="text-lg text-calibrated">{fmt(yearPoint.raw / yearPoint.harmonized, 2)}x</dd>
+                <dt className="text-muted-foreground">Test de Chow (Arm.)</dt>
+                <dd className="text-sm text-calibrated">p = {CHOW_TEST_METRICS.pValueHarmonized} (Continuo)</dd>
               </div>
             </dl>
           )}
@@ -180,8 +268,8 @@ export function LabView({ mode, history, year, scene, kpis, filters }: Props) {
         <Cell2
           className="lg:col-span-4"
           eyebrow="Calibración radiométrica"
-          title="Regresión FRP VIIRS → MODIS"
-          body="Ajuste por mínimos cuadrados sobre pares co-localizados (< 1 km, Δt < 3.5 h). La pendiente < 1 corrige la mayor sensibilidad de VIIRS a fuegos pequeños."
+          title="Regresión FRP VIIRS → MODIS y Ecuación HFII"
+          body="Ajuste sobre pares co-localizados (< 1 km, Δt < 3.5 h) incorporando el factor de área off-nadir ψ(scan,track) y atenuación diurna/nocturna γ_solar."
         >
           <div className="h-56">
             <ResponsiveContainer width="100%" height="100%">
@@ -204,9 +292,13 @@ export function LabView({ mode, history, year, scene, kpis, filters }: Props) {
             </ResponsiveContainer>
           </div>
           <div className="flex flex-col gap-2 border-t border-border pt-4 font-mono text-[11px]">
-            <p className="text-[13px] text-foreground">
-              FRP<sub>MODIS</sub> = <span className="text-calibrated">{FRP_SLOPE}</span> · FRP<sub>VIIRS</sub> +{' '}
-              <span className="text-calibrated">{FRP_INTERCEPT}</span>
+            <p className="text-[12px] text-foreground">
+              HFII = (<span className="text-calibrated">{HFII_ALPHA}</span>·FRP<sup>{HFII_BETA}</sup> +{' '}
+              <span className="text-calibrated">{HFII_KAPPA}</span>) · ψ(scan,track) · γ<sub>solar</sub>
+            </p>
+            <p className="text-[11px] text-muted-foreground">
+              γ<sub>D</sub> = {GAMMA_DAY} · γ<sub>N</sub> = {GAMMA_NIGHT} · Conservación Energética:{' '}
+              <span className="text-foreground">{fmt(CHOW_TEST_METRICS.energyConservationIndex * 100, 1)}%</span>
             </p>
             <dl className="grid grid-cols-3 text-muted-foreground">
               <div>
@@ -218,8 +310,8 @@ export function LabView({ mode, history, year, scene, kpis, filters }: Props) {
                 <dd className="text-foreground">{fmt(rmse, 2)} MW</dd>
               </div>
               <div>
-                <dt>n pares</dt>
-                <dd className="text-foreground">{scatter.length}</dd>
+                <dt>F-Score</dt>
+                <dd className="text-foreground">{CHOW_TEST_METRICS.fScoreClustering}</dd>
               </div>
             </dl>
           </div>
