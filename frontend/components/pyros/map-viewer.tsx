@@ -38,6 +38,7 @@ interface Props {
   filters: Filters
   splitScreen: boolean
   onSplitScreenChange: (v: boolean) => void
+  onExportPdf?: () => void
 }
 
 type LayerKey = 'modis' | 'viirs' | 'hull' | 'hex' | 'static' | 'graticule'
@@ -79,7 +80,7 @@ function tileYToLat(y: number, z: number): number {
   return (180 / Math.PI) * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)))
 }
 
-export function MapViewer({ mode, scene, region, day, filters, splitScreen, onSplitScreenChange }: Props) {
+export function MapViewer({ mode, scene, region, day, filters, splitScreen, onSplitScreenChange, onExportPdf }: Props) {
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [splitPct, setSplitPct] = useState(50)
@@ -1043,6 +1044,43 @@ export function MapViewer({ mode, scene, region, day, filters, splitScreen, onSp
         )}
       </div>
 
+      {/* 1-Click Quick Tours Bar for Hackathon Judges */}
+      <div className="absolute top-3 left-3 z-20 flex flex-wrap items-center gap-2 pointer-events-none">
+        <div className="flex items-center gap-1.5 bg-slate-900/90 backdrop-blur-md p-1 rounded-lg border border-slate-700 pointer-events-auto shadow-xl">
+          <span className="text-[10px] uppercase font-mono px-2 text-slate-400 font-semibold">Rutas Rápidas:</span>
+          <button
+            type="button"
+            onClick={() => {
+              setPan({ x: 0, y: 0 })
+              setZoom(1.0)
+            }}
+            className="px-2.5 py-1 text-xs rounded bg-slate-800 text-slate-200 hover:bg-slate-700 hover:text-white transition-colors cursor-pointer"
+          >
+            📍 Chiquitanía Central
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setPan({ x: -80, y: -60 })
+              setZoom(1.7)
+            }}
+            className="px-2.5 py-1 text-xs rounded bg-slate-800/80 text-slate-300 hover:bg-slate-700 hover:text-white transition-colors cursor-pointer"
+          >
+            📍 Noel Kempff
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setPan({ x: 90, y: 50 })
+              setZoom(1.6)
+            }}
+            className="px-2.5 py-1 text-xs rounded bg-slate-800/80 text-slate-300 hover:bg-slate-700 hover:text-white transition-colors cursor-pointer"
+          >
+            📍 San Matías
+          </button>
+        </div>
+      </div>
+
       {/* Top-Right Legend */}
       <div className="pointer-events-none absolute right-3 top-3 flex flex-wrap items-center gap-3 rounded-md border border-border bg-card/90 px-3 py-1.5 text-[11px] backdrop-blur-md">
         <span className="flex items-center gap-1.5">
@@ -1063,6 +1101,25 @@ export function MapViewer({ mode, scene, region, day, filters, splitScreen, onSp
         </span>
       </div>
 
+      {/* Didactic Floating Legend for Evaluators */}
+      <div className="hidden sm:block absolute bottom-14 right-4 bg-slate-900/95 border border-slate-700/80 rounded-lg p-2.5 shadow-2xl backdrop-blur-md text-[11px] space-y-1.5 pointer-events-auto z-20">
+        <div className="text-[10px] uppercase font-mono text-slate-400 tracking-wider mb-1 font-semibold">
+          Leyenda Didáctica
+        </div>
+        <div className="flex items-center gap-2 text-slate-200">
+          <span className="w-2.5 h-2.5 border border-cyan-400 bg-sky-500/80 rounded-xs inline-block" />
+          <span>Píxel MODIS (1 km - legado)</span>
+        </div>
+        <div className="flex items-center gap-2 text-slate-200">
+          <span className="w-2.5 h-2.5 rounded-full bg-amber-400 inline-block shadow-xs shadow-amber-400" />
+          <span>Detección VIIRS (375 m)</span>
+        </div>
+        <div className="flex items-center gap-2 text-cyan-300 font-semibold">
+          <span className="w-3 h-2.5 rounded-xs border border-cyan-400 bg-cyan-950/40 inline-block" />
+          <span>Polígono Armonizado Pyros</span>
+        </div>
+      </div>
+
       {selection && (
         <Inspector
           selection={selection}
@@ -1071,6 +1128,7 @@ export function MapViewer({ mode, scene, region, day, filters, splitScreen, onSp
             setInspectorDismissed(true)
             setSelection(null)
           }}
+          onExportPdf={onExportPdf}
         />
       )}
     </div>

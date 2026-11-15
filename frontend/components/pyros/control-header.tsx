@@ -176,6 +176,9 @@ export function ControlHeader({
   const ticker = buildTicker(mode, kpis, locale)
   const exportCtx = { mode, region, year, kpis, scene, calendar }
 
+  const riskIndex = kpis.hfii >= 0.65 ? 4 : kpis.hfii >= 0.45 ? 3 : kpis.hfii >= 0.25 ? 2 : 1
+  const riskLabel = riskIndex === 4 ? 'Crítico (4/4)' : riskIndex === 3 ? 'Alto (3/4)' : riskIndex === 2 ? 'Alerta (2/4)' : 'Bajo (1/4)'
+
   useEffect(() => {
     if (!exportOpen) return
     const onDown = (e: MouseEvent) => {
@@ -186,120 +189,213 @@ export function ControlHeader({
   }, [exportOpen])
 
   return (
-    <header className="relative z-30 shrink-0 border-b border-border bg-background">
-      <div className="flex min-h-14 flex-wrap items-center gap-x-3 gap-y-2 border-b border-border px-5 py-2">
-        <h1 className="flex items-baseline gap-2.5">
-          <span className="font-mono text-[11px] tabular-nums text-muted-foreground">{current.index} /</span>
-          <span className="text-[15px] font-medium tracking-tight">{dict.views[view].label}</span>
-        </h1>
+    <header className="relative z-30 shrink-0 border-b border-surface-border bg-slate-950/90 backdrop-blur-md">
+      {/* Top Bar with Brand, Region, Environmental Risk, and Quick Export */}
+      <div className="flex min-h-14 flex-wrap items-center justify-between gap-3 px-4 py-2 border-b border-slate-800/80">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <span className="font-extrabold text-sm sm:text-base tracking-wider text-slate-50 uppercase">
+              Pyros<span className="text-amber-400">Harmonizer</span>
+            </span>
+            <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-sky-950/80 border border-sky-500/30 text-sky-400 font-medium">
+              NASA Reto #8
+            </span>
+          </div>
+          <span className="hidden xl:inline text-slate-600">|</span>
+          <p className="hidden xl:block text-[11px] text-slate-400 leading-none">
+            Armonización Satelital Multiespectral • Chiquitanía
+          </p>
+        </div>
 
-        <span className="hidden rounded border border-border bg-card px-2 py-0.5 font-mono text-[10px] text-muted-foreground xl:inline">
-          {dict.header.challengeBadge}
-        </span>
-
-        <label className="flex items-center gap-2">
-          <span className="sr-only">Área de estudio</span>
-          <span className="relative">
+        {/* Center / Controls: Region & Environmental Risk */}
+        <div className="flex flex-wrap items-center gap-2.5">
+          {/* Region Selector */}
+          <div className="flex items-center bg-slate-900/90 border border-slate-700/60 rounded-md px-2.5 py-1 text-xs">
+            <span className="text-amber-400 mr-1.5 text-xs">📍</span>
+            <label className="sr-only">Región</label>
             <select
               value={regionId}
               onChange={(e) => onRegionChange(e.target.value)}
-              className="appearance-none rounded-[3px] border border-border bg-card py-1.5 pl-2.5 pr-7 text-[13px] text-foreground focus-visible:outline-2"
+              className="bg-transparent border-none text-slate-200 text-xs py-0 pl-0 pr-6 focus:ring-0 cursor-pointer font-medium"
             >
               {CATEGORIES.map((cat) => (
-                <optgroup key={cat} label={cat}>
+                <optgroup key={cat} label={cat} className="bg-slate-900 text-slate-200">
                   {REGIONS.filter((r) => r.category === cat).map((r) => (
-                    <option key={r.id} value={r.id}>
+                    <option key={r.id} value={r.id} className="bg-slate-900 text-slate-200">
                       {r.name}
                     </option>
                   ))}
                 </optgroup>
               ))}
             </select>
-            <ChevronDown className="pointer-events-none absolute right-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
-          </span>
-        </label>
+          </div>
 
-        {/* Live API Status Indicator (NFR-006) */}
-        <button
-          type="button"
-          onClick={onRefreshApiStatus}
-          title={`${apiStatus.message} · Endpoint: ${apiStatus.endpoint} · Latencia: ${apiStatus.latencyMs}ms (Clic para reconectar)`}
-          className={cn(
-            'hidden items-center gap-1.5 rounded-[3px] border px-2 py-1 font-mono text-[10px] transition-colors md:flex',
-            apiStatus.mode === 'online'
-              ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
-              : 'border-border bg-card text-muted-foreground hover:text-foreground',
-          )}
-        >
-          <Activity className={cn('size-3', apiStatus.mode === 'online' ? 'text-emerald-400' : 'text-amber-400')} aria-hidden />
-          <span>{apiStatus.mode === 'online' ? dict.header.apiOnline : dict.header.apiFallback}</span>
-        </button>
+          {/* Sync Status / Live API */}
+          <button
+            type="button"
+            onClick={onRefreshApiStatus}
+            title={`${apiStatus.message} (Clic para verificar)`}
+            className="hidden md:flex items-center gap-1.5 bg-emerald-950/50 border border-emerald-500/30 px-2.5 py-1 rounded text-xs text-emerald-300 font-mono transition-colors"
+          >
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+            <span>{apiStatus.mode === 'online' ? 'MODIS + VIIRS Sincronizados' : 'API Local Fallback'}</span>
+          </button>
 
-        <div className="ml-auto flex flex-wrap items-center gap-2">
-          {/* RBAC Role Selector */}
-          <label className="hidden items-center gap-1.5 sm:flex" title={locale === 'es' ? roleSpec.orgEs : roleSpec.orgEn}>
-            <UserCheck className="size-3.5 text-muted-foreground" aria-hidden />
-            <span className="sr-only">Rol RBAC</span>
-            <select
-              aria-label="Rol RBAC"
-              value={role}
-              onChange={(e) => onRoleChange(e.target.value as RbacRole)}
-              className="rounded-[3px] border border-border bg-card px-2 py-1 font-mono text-[11px] text-foreground focus-visible:outline-2"
+          {/* Environmental Risk Meter */}
+          <div className="flex items-center bg-slate-900/90 border border-rose-900/50 rounded-lg p-1 px-2.5 gap-2">
+            <div className="flex items-center gap-1.5">
+              <span className={cn('w-2.5 h-2.5 rounded-full', riskIndex === 4 ? 'bg-rose-500 status-pulse-red' : riskIndex === 3 ? 'bg-amber-500 animate-pulse' : 'bg-emerald-400')} />
+              <span className={cn('text-xs font-semibold', riskIndex === 4 ? 'text-rose-300' : riskIndex === 3 ? 'text-amber-300' : 'text-emerald-300')}>
+                {riskLabel}
+              </span>
+            </div>
+            {/* Segmented 4-level bar */}
+            <div className="flex gap-1 items-center">
+              <span className={cn('w-2.5 h-2 rounded-xs', riskIndex >= 1 ? 'bg-emerald-500' : 'bg-emerald-500/20')} title="Bajo" />
+              <span className={cn('w-2.5 h-2 rounded-xs', riskIndex >= 2 ? 'bg-yellow-500' : 'bg-yellow-500/20')} title="Alerta" />
+              <span className={cn('w-2.5 h-2 rounded-xs', riskIndex >= 3 ? 'bg-amber-500' : 'bg-amber-500/20')} title="Alto" />
+              <span className={cn('w-2.5 h-2 rounded-xs', riskIndex >= 4 ? 'bg-rose-500 shadow-xs shadow-rose-500' : 'bg-rose-500/20')} title="Crítico" />
+            </div>
+            <div className="h-3 w-px bg-slate-700 hidden sm:block" />
+            <div className="text-[10px] font-mono text-slate-300 hidden sm:flex items-center gap-1.5">
+              <span>💨 28 km/h NO</span>
+              <span>💧 18% HR</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Right CTA Actions: Quick PDF Export and Format Dropdown */}
+        <div className="flex items-center gap-2">
+          {/* Quick PDF button */}
+          <button
+            type="button"
+            onClick={() => exportPdf(exportCtx)}
+            className="bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold px-3 py-1.5 rounded-md text-xs shadow-md shadow-amber-500/20 transition-all flex items-center gap-1.5 active:scale-95 cursor-pointer"
+          >
+            <Download className="w-3.5 h-3.5" aria-hidden />
+            <span>Exportar PDF</span>
+          </button>
+
+          {/* More Formats Dropdown */}
+          <div ref={exportRef} className="relative">
+            <button
+              type="button"
+              onClick={() => setExportOpen((o) => !o)}
+              title="Más formatos de exportación"
+              className="flex items-center gap-1 rounded-md border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-xs text-slate-300 hover:text-white transition-colors"
             >
-              {RBAC_ROLES.map((r) => (
-                <option key={r.id} value={r.id}>
-                  RBAC: {locale === 'es' ? r.labelEs : r.labelEn}
-                </option>
-              ))}
-            </select>
-          </label>
+              <FileText className="size-3.5" aria-hidden />
+              <ChevronDown className="size-3" aria-hidden />
+            </button>
 
-          {/* Colorblind Palette Toggle (NFR-010: Viridis) */}
+            {exportOpen && (
+              <div
+                role="menu"
+                aria-label="Formatos de exportación"
+                className="absolute right-0 top-full z-50 mt-1.5 w-72 rounded-lg border border-slate-700 bg-slate-900 p-1 shadow-2xl backdrop-blur-xl"
+              >
+                <div className="border-b border-slate-800 px-2.5 py-1.5 font-mono text-[10px] text-slate-400">
+                  Rol activo: <span className="text-white font-semibold">{locale === 'es' ? roleSpec.labelEs : roleSpec.labelEn}</span>
+                </div>
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={!roleSpec.canExportGeoJson}
+                  onClick={() => {
+                    if (!roleSpec.canExportGeoJson) return
+                    exportGeoJson(exportCtx)
+                    setExportOpen(false)
+                  }}
+                  className="flex w-full items-center gap-2.5 rounded px-2.5 py-2 text-left text-xs hover:bg-slate-800 text-slate-200 disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  <FileJson className="size-3.5 text-cyan-400" aria-hidden />
+                  <span className="flex flex-col">
+                    <span>Exportar GeoJSON (RFC 7946)</span>
+                    <span className="font-mono text-[10px] text-slate-400">Huellas / cascos / celdas H3</span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    exportCsv(exportCtx)
+                    setExportOpen(false)
+                  }}
+                  className="flex w-full items-center gap-2.5 rounded px-2.5 py-2 text-left text-xs hover:bg-slate-800 text-slate-200"
+                >
+                  <FileSpreadsheet className="size-3.5 text-orange-400" aria-hidden />
+                  <span className="flex flex-col">
+                    <span>Exportar CSV (ESC-EXP-002)</span>
+                    <span className="font-mono text-[10px] text-slate-400">Serie diaria · 8 columnas canónicas</span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={!roleSpec.canExportAuditJson}
+                  onClick={() => {
+                    if (!roleSpec.canExportAuditJson) return
+                    exportAuditJson(exportCtx)
+                    setExportOpen(false)
+                  }}
+                  className="flex w-full items-center gap-2.5 rounded px-2.5 py-2 text-left text-xs hover:bg-slate-800 text-slate-200 disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  <FileCode2 className="size-3.5 text-cyan-400" aria-hidden />
+                  <span className="flex flex-col">
+                    <span>Auditoría Científica JSON</span>
+                    <span className="font-mono text-[10px] text-slate-400">Test de Chow · α, β, κ, ψ, γ</span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    exportPdf(exportCtx)
+                    setExportOpen(false)
+                  }}
+                  className="flex w-full items-center gap-2.5 rounded px-2.5 py-2 text-left text-xs hover:bg-slate-800 text-slate-200"
+                >
+                  <FileText className="size-3.5 text-amber-400" aria-hidden />
+                  <span className="flex flex-col">
+                    <span>Boletín Oficial (PDF)</span>
+                    <span className="font-mono text-[10px] text-slate-400">Boletín A4 con gráficas vectoriales</span>
+                  </span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Viridis Toggle */}
           <button
             type="button"
             aria-pressed={palette === 'viridis'}
             onClick={() => onPaletteChange(palette === 'viridis' ? 'standard' : 'viridis')}
-            title="Alternar paleta de alto contraste apta para daltónicos (Viridis · NFR-010)"
+            title="Paleta daltónicos (Viridis)"
             className={cn(
-              'flex items-center gap-1 rounded-[3px] border px-2 py-1 font-mono text-[11px] transition-colors focus-visible:outline-2',
-              palette === 'viridis'
-                ? 'border-yellow-400/60 bg-yellow-400/15 text-yellow-200'
-                : 'border-border bg-card text-muted-foreground hover:text-foreground',
+              'hidden sm:flex items-center gap-1 rounded-md border px-2 py-1.5 font-mono text-[11px] transition-colors',
+              palette === 'viridis' ? 'border-yellow-400/60 bg-yellow-400/15 text-yellow-200' : 'border-slate-800 bg-slate-900 text-slate-400 hover:text-white',
             )}
           >
             <Eye className="size-3.5" aria-hidden />
             <span className="hidden lg:inline">{palette === 'viridis' ? dict.header.viridisLabel : 'Viridis'}</span>
           </button>
 
-          {/* Bilingual Switcher ES / EN (NFR-011) */}
+          {/* Bilingual Switcher ES / EN */}
           <button
             type="button"
             onClick={() => onLocaleChange(locale === 'es' ? 'en' : 'es')}
-            title="Cambiar idioma / Switch language (ES / EN · NFR-011)"
-            className="flex items-center gap-1 rounded-[3px] border border-border bg-card px-2 py-1 font-mono text-[11px] text-foreground hover:bg-accent focus-visible:outline-2"
+            title="Cambiar idioma / Switch language"
+            className="flex items-center gap-1 rounded-md border border-slate-800 bg-slate-900 px-2 py-1.5 font-mono text-[11px] text-slate-300 hover:text-white"
           >
-            <Globe className="size-3.5 text-muted-foreground" aria-hidden />
+            <Globe className="size-3.5 text-slate-400" aria-hidden />
             <span>{locale.toUpperCase()}</span>
           </button>
+        </div>
+      </div>
 
-          {view === 'map' && (
-            <button
-              type="button"
-              aria-pressed={splitScreen}
-              onClick={() => onSplitScreenChange(!splitScreen)}
-              className={cn(
-                'flex items-center gap-1.5 rounded-[3px] border px-2.5 py-1.5 font-mono text-xs transition-colors focus-visible:outline-2',
-                splitScreen
-                  ? 'border-cyan-400/70 bg-cyan-500/15 text-cyan-300'
-                  : 'border-border bg-card text-muted-foreground hover:text-foreground',
-              )}
-              title="Comparador de Cortina (Split-Screen: Crudo vs Armonizado)"
-            >
-              <Columns2 className="size-3.5" aria-hidden />
-              <span className="hidden md:inline">{dict.header.splitScreen}</span>
-            </button>
-          )}
-
+      {/* Sub-Header: Mode Selector & Filters */}
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-slate-800/80 px-4 py-2 text-xs bg-slate-950/60">
+        <div className="flex flex-wrap items-center gap-3">
           <Segmented
             label="Modo de procesamiento"
             size="md"
@@ -312,120 +408,54 @@ export function ControlHeader({
             ]}
           />
 
-          <div ref={exportRef} className="relative">
+          {view === 'map' && (
             <button
               type="button"
-              aria-haspopup="menu"
-              aria-expanded={exportOpen}
-              onClick={() => setExportOpen((o) => !o)}
-              className="flex items-center gap-1.5 rounded-[3px] border border-border bg-card px-2.5 py-1.5 text-xs hover:bg-accent focus-visible:outline-2"
+              aria-pressed={splitScreen}
+              onClick={() => onSplitScreenChange(!splitScreen)}
+              className={cn(
+                'flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 font-mono text-xs transition-colors focus-visible:outline-2 cursor-pointer',
+                splitScreen
+                  ? 'border-cyan-400/70 bg-cyan-500/15 text-cyan-300'
+                  : 'border-slate-700 bg-slate-900 text-slate-400 hover:text-white',
+              )}
+              title="Comparador de Cortina (Split-Screen: Crudo vs Armonizado)"
             >
-              <Download className="size-3.5" aria-hidden />
-              <span className="hidden sm:inline">{dict.header.export}</span>
-              <ChevronDown className="size-3 text-muted-foreground" aria-hidden />
+              <Columns2 className="size-3.5" aria-hidden />
+              <span className="hidden md:inline">{dict.header.splitScreen}</span>
             </button>
-            {exportOpen && (
-              <div
-                role="menu"
-                aria-label="Formatos de exportación"
-                className="absolute right-0 top-full z-50 mt-1.5 w-72 rounded-[3px] border border-rule bg-card p-1 shadow-xl"
-              >
-                <div className="border-b border-border px-2.5 py-1.5 font-mono text-[10px] text-muted-foreground">
-                  Rol activo: <span className="text-foreground">{locale === 'es' ? roleSpec.labelEs : roleSpec.labelEn}</span>
-                </div>
-                <button
-                  type="button"
-                  role="menuitem"
-                  disabled={!roleSpec.canExportGeoJson}
-                  onClick={() => {
-                    if (!roleSpec.canExportGeoJson) return
-                    exportGeoJson(exportCtx)
-                    setExportOpen(false)
-                  }}
-                  className="flex w-full items-center gap-2.5 rounded-sm px-2.5 py-2 text-left text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-45"
-                >
-                  {roleSpec.canExportGeoJson ? (
-                    <FileJson className="size-3.5 text-harmonized" aria-hidden />
-                  ) : (
-                    <Lock className="size-3.5 text-muted-foreground" aria-hidden />
-                  )}
-                  <span className="flex flex-col">
-                    <span>Exportar GeoJSON (RFC 7946)</span>
-                    <span className="font-mono text-[10px] text-muted-foreground">
-                      {roleSpec.canExportGeoJson ? 'Huellas / cascos / celdas H3' : 'Requiere rol Operador o superior'}
-                    </span>
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    exportCsv(exportCtx)
-                    setExportOpen(false)
-                  }}
-                  className="flex w-full items-center gap-2.5 rounded-sm px-2.5 py-2 text-left text-xs hover:bg-accent"
-                >
-                  <FileSpreadsheet className="size-3.5 text-modis" aria-hidden />
-                  <span className="flex flex-col">
-                    <span>Exportar CSV (ESC-EXP-002)</span>
-                    <span className="font-mono text-[10px] text-muted-foreground">Serie diaria · 8 columnas canónicas</span>
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  disabled={!roleSpec.canExportAuditJson}
-                  onClick={() => {
-                    if (!roleSpec.canExportAuditJson) return
-                    exportAuditJson(exportCtx)
-                    setExportOpen(false)
-                  }}
-                  className="flex w-full items-center gap-2.5 rounded-sm px-2.5 py-2 text-left text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-45"
-                >
-                  {roleSpec.canExportAuditJson ? (
-                    <FileCode2 className="size-3.5 text-cyan-400" aria-hidden />
-                  ) : (
-                    <Lock className="size-3.5 text-muted-foreground" aria-hidden />
-                  )}
-                  <span className="flex flex-col">
-                    <span>Auditoría Científica JSON</span>
-                    <span className="font-mono text-[10px] text-muted-foreground">
-                      {roleSpec.canExportAuditJson ? 'Test de Chow · α, β, κ, ψ, γ' : 'Requiere rol Analista o Admin'}
-                    </span>
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    exportPdf(exportCtx)
-                    setExportOpen(false)
-                  }}
-                  className="flex w-full items-center gap-2.5 rounded-sm px-2.5 py-2 text-left text-xs hover:bg-accent"
-                >
-                  <FileText className="size-3.5 text-viirs" aria-hidden />
-                  <span className="flex flex-col">
-                    <span>Boletín Oficial (PDF)</span>
-                    <span className="font-mono text-[10px] text-muted-foreground">Boletín A4 con gráficas vectoriales</span>
-                  </span>
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
+          )}
 
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border px-5 py-2 text-xs">
-        <Segmented
-          label="Pasada orbital"
-          value={filters.orbit}
-          onChange={(orbit) => onFiltersChange({ ...filters, orbit })}
-          options={[
-            { id: 'all', label: dict.header.orbitAll },
-            { id: 'D', label: dict.header.orbitDay },
-            { id: 'N', label: dict.header.orbitNight },
-          ]}
-        />
+          {/* RBAC Role Selector */}
+          <label className="hidden items-center gap-1.5 sm:flex" title={locale === 'es' ? roleSpec.orgEs : roleSpec.orgEn}>
+            <UserCheck className="size-3.5 text-slate-400" aria-hidden />
+            <span className="sr-only">Rol RBAC</span>
+            <select
+              aria-label="Rol RBAC"
+              value={role}
+              onChange={(e) => onRoleChange(e.target.value as RbacRole)}
+              className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 font-mono text-[11px] text-slate-300 focus-visible:outline-none cursor-pointer"
+            >
+              {RBAC_ROLES.map((r) => (
+                <option key={r.id} value={r.id}>
+                  RBAC: {locale === 'es' ? r.labelEs : r.labelEn}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+          <Segmented
+            label="Pasada orbital"
+            value={filters.orbit}
+            onChange={(orbit) => onFiltersChange({ ...filters, orbit })}
+            options={[
+              { id: 'all', label: dict.header.orbitAll },
+              { id: 'D', label: dict.header.orbitDay },
+              { id: 'N', label: dict.header.orbitNight },
+            ]}
+          />
 
         <button
           type="button"
@@ -552,6 +582,7 @@ export function ControlHeader({
         {viirsUnavailable && <span className="font-mono text-[11px] text-modis">VIIRS no disponible antes de {VIIRS_START}</span>}
 
         <span className="ml-auto hidden font-mono text-[11px] text-muted-foreground 2xl:inline">EPSG:4326 · {MODE_LABEL[mode]}</span>
+        </div>
       </div>
 
       <dl className="grid grid-cols-2 lg:grid-cols-4" aria-label={`Indicadores ${year}`}>
