@@ -93,3 +93,4 @@ Cada reporte oficial emitido por PyrosHarmonizer incluye:
 1. **Algoritmo de Hash:** `SHA-256` sobre el payload JSON del evento (`bounding_box + date_range + filter_criteria`).
 2. **Identificador del Motor:** `PyrosHarmonizer-Engine v1.0.0-NASA-SpaceApps`.
 3. **Compatibilidad:** Conforme a las directrices de metadatos espaciales de la norma **ISO 19115 / OGC (Open Geospatial Consortium)**.
+

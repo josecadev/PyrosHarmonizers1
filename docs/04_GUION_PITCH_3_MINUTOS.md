@@ -87,3 +87,4 @@
 2. **Ritmo y Respiración:** Practicar con cronómetro en mano. Si sobran 10 segundos, no apresurarse; una pausa segura al final transmite dominio técnico.
 3. **Manejo de la Demo:** El Orador 3 no debe hablar al mismo tiempo que hace clics erráticos. Cada clic debe acompañar exactamente lo que el discurso anuncia ("Observen el Split-Screen... ahora miren el boletín PDF").
 4. **Respaldo Offline:** Si el internet de la sala fallara durante la demo, no entrar en pánico: recuerden que el frontend tiene precargado el dataset local con `NFR-006 Offline Fallback`.
+

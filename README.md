@@ -14,14 +14,15 @@ Proyecto desarrollado para el **2026 NASA International Space Apps Challenge** (
 
 ## 🎤 Kit Maestro de Exposición y Pitch (Jurado NASA)
 
-Hemos preparado una suite documental completa en la carpeta [`pitch/`](file:///d:/ProyectoHackattonNasa/PyrosHarmonizers1/pitch/README.md) diseñada para la defensa ante el jurado calificador:
+Hemos preparado una suite documental completa en [`docs/`](file:///d:/ProyectoHackattonNasa/PyrosHarmonizers1/docs/GUIA_EXPOSICION.md) diseñada para la defensa ante el jurado calificador:
 
-1. [**01_LA_IDEA.md**](file:///d:/ProyectoHackattonNasa/PyrosHarmonizers1/pitch/01_LA_IDEA.md): Visión, Elevator Pitch de 30s, propuesta de valor y beneficiarios.
-2. [**02_EL_PROBLEMA.md**](file:///d:/ProyectoHackattonNasa/PyrosHarmonizers1/pitch/02_EL_PROBLEMA.md): La fractura de 2012, el salto instrumental del 320% y el caso Chiquitanía.
-3. [**03_COMO_LO_RESUELVE.md**](file:///d:/ProyectoHackattonNasa/PyrosHarmonizers1/pitch/03_COMO_LO_RESUELVE.md): Las 4 etapas científicas (geometría real, ST-DBSCAN, HFII y grillas H3).
-4. [**04_GUION_PITCH_3_MINUTOS.md**](file:///d:/ProyectoHackattonNasa/PyrosHarmonizers1/pitch/04_GUION_PITCH_3_MINUTOS.md): Guion palabra por palabra cronometrado para la exposición en vivo.
-5. [**05_PREGUNTAS_Y_RESPUESTAS_JURADO.md**](file:///d:/ProyectoHackattonNasa/PyrosHarmonizers1/pitch/05_PREGUNTAS_Y_RESPUESTAS_JURADO.md): 15 respuestas blindadas a las preguntas técnicas y científicas más difíciles.
-6. [**06_EVIDENCIA_CIENTIFICA_Y_METRICAS.md**](file:///d:/ProyectoHackattonNasa/PyrosHarmonizers1/pitch/06_EVIDENCIA_CIENTIFICA_Y_METRICAS.md): Fórmulas KaTeX, resultados del Test de Chow ($F = 1.12$) y validación Sentinel-2.
+- [**GUIA_EXPOSICION.md**](file:///d:/ProyectoHackattonNasa/PyrosHarmonizers1/docs/GUIA_EXPOSICION.md): Guía de roles, distribución de tiempos y checklist 10 minutos antes de subir.
+- [**01_LA_IDEA.md**](file:///d:/ProyectoHackattonNasa/PyrosHarmonizers1/docs/01_LA_IDEA.md): Visión, Elevator Pitch de 30s, propuesta de valor y beneficiarios.
+- [**02_EL_PROBLEMA.md**](file:///d:/ProyectoHackattonNasa/PyrosHarmonizers1/docs/02_EL_PROBLEMA.md): La fractura de 2012, el salto instrumental del 320% y el caso Chiquitanía.
+- [**03_COMO_LO_RESUELVE.md**](file:///d:/ProyectoHackattonNasa/PyrosHarmonizers1/docs/03_COMO_LO_RESUELVE.md): Las 4 etapas científicas (geometría real, ST-DBSCAN, HFII y grillas H3).
+- [**04_GUION_PITCH_3_MINUTOS.md**](file:///d:/ProyectoHackattonNasa/PyrosHarmonizers1/docs/04_GUION_PITCH_3_MINUTOS.md): Guion palabra por palabra cronometrado para la exposición en vivo.
+- [**05_PREGUNTAS_Y_RESPUESTAS_JURADO.md**](file:///d:/ProyectoHackattonNasa/PyrosHarmonizers1/docs/05_PREGUNTAS_Y_RESPUESTAS_JURADO.md): 15 respuestas blindadas a las preguntas técnicas y científicas más difíciles.
+- [**06_EVIDENCIA_CIENTIFICA_Y_METRICAS.md**](file:///d:/ProyectoHackattonNasa/PyrosHarmonizers1/docs/06_EVIDENCIA_CIENTIFICA_Y_METRICAS.md): Fórmulas KaTeX, resultados del Test de Chow ($F = 1.12$) y validación Sentinel-2.
 
 ---
 

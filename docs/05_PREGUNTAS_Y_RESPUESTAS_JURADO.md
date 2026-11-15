@@ -98,3 +98,4 @@
 ### ❓ Pregunta 15: ¿Cuál es el costo de adopción y cómo se mantiene el proyecto a largo plazo?
 > **Respuesta:**  
 > *"El costo de licencias de software es **cero**: está construido 100% sobre tecnologías de código abierto (PostGIS, Python, Next.js). Puede desplegarse en infraestructura gubernamental existente o en nubes públicas gratuitas (Vercel + Docker). El proyecto entrega valor inmediato a las instituciones públicas de conservación ambiental de toda la cuenca amazónica."*
+

@@ -11,12 +11,12 @@ Esta carpeta contiene todo el material estratégico, técnico, narrativo y cient
 
 | Archivo | Propósito | Tiempo de Lectura |
 | :--- | :--- | :--- |
-| [**01_LA_IDEA.md**](file:///d:/ProyectoHackattonNasa/PyrosHarmonizers1/pitch/01_LA_IDEA.md) | **Concepto, visión, propuesta de valor única y qué es PyrosHarmonizer.** | 3 min |
-| [**02_EL_PROBLEMA.md**](file:///d:/ProyectoHackattonNasa/PyrosHarmonizers1/pitch/02_EL_PROBLEMA.md) | **El "Efecto 2012", la fractura instrumental, sesgos geométricos y su costo ecológico real.** | 4 min |
-| [**03_COMO_LO_RESUELVE.md**](file:///d:/ProyectoHackattonNasa/PyrosHarmonizers1/pitch/03_COMO_LO_RESUELVE.md) | **La solución algorítmica y técnica: ST-DBSCAN, calibración FRP/HFII, grillas H3 y plataforma.** | 5 min |
-| [**04_GUION_PITCH_3_MINUTOS.md**](file:///d:/ProyectoHackattonNasa/PyrosHarmonizers1/pitch/04_GUION_PITCH_3_MINUTOS.md) | **Guion palabra por palabra para la presentación cronometrada de 3 minutos ante el jurado.** | 3 min |
-| [**05_PREGUNTAS_Y_RESPUESTAS_JURADO.md**](file:///d:/ProyectoHackattonNasa/PyrosHarmonizers1/pitch/05_PREGUNTAS_Y_RESPUESTAS_JURADO.md) | **Banco de 15 preguntas difíciles técnicas y científicas del jurado con respuestas blindadas.** | 6 min |
-| [**06_EVIDENCIA_CIENTIFICA_Y_METRICAS.md**](file:///d:/ProyectoHackattonNasa/PyrosHarmonizers1/pitch/06_EVIDENCIA_CIENTIFICA_Y_METRICAS.md) | **Fórmulas matemáticas, tablas de métricas, Test de Chow y resultados en la Chiquitanía.** | 4 min |
+| [**01_LA_IDEA.md**](file:///d:/ProyectoHackattonNasa/PyrosHarmonizers1/docs/01_LA_IDEA.md) | **Concepto, visión, propuesta de valor única y qué es PyrosHarmonizer.** | 3 min |
+| [**02_EL_PROBLEMA.md**](file:///d:/ProyectoHackattonNasa/PyrosHarmonizers1/docs/02_EL_PROBLEMA.md) | **El "Efecto 2012", la fractura instrumental, sesgos geométricos y su costo ecológico real.** | 4 min |
+| [**03_COMO_LO_RESUELVE.md**](file:///d:/ProyectoHackattonNasa/PyrosHarmonizers1/docs/03_COMO_LO_RESUELVE.md) | **La solución algorítmica y técnica: ST-DBSCAN, calibración FRP/HFII, grillas H3 y plataforma.** | 5 min |
+| [**04_GUION_PITCH_3_MINUTOS.md**](file:///d:/ProyectoHackattonNasa/PyrosHarmonizers1/docs/04_GUION_PITCH_3_MINUTOS.md) | **Guion palabra por palabra para la presentación cronometrada de 3 minutos ante el jurado.** | 3 min |
+| [**05_PREGUNTAS_Y_RESPUESTAS_JURADO.md**](file:///d:/ProyectoHackattonNasa/PyrosHarmonizers1/docs/05_PREGUNTAS_Y_RESPUESTAS_JURADO.md) | **Banco de 15 preguntas difíciles técnicas y científicas del jurado con respuestas blindadas.** | 6 min |
+| [**06_EVIDENCIA_CIENTIFICA_Y_METRICAS.md**](file:///d:/ProyectoHackattonNasa/PyrosHarmonizers1/docs/06_EVIDENCIA_CIENTIFICA_Y_METRICAS.md) | **Fórmulas matemáticas, tablas de métricas, Test de Chow y resultados en la Chiquitanía.** | 4 min |
 
 ---
 
@@ -49,4 +49,5 @@ flowchart TD
   2. Vista Comparativa *Split-Screen* (MODIS vs VIIRS vs Armonizado).
   3. Calendario de Quemas (*Burning Activity Calendar*).
   4. Botón de **"Boletín Oficial (PDF)"** para abrir la vista de impresión en alta resolución A4.
-- [ ] **Diapositivas de Respaldo:** Tener a mano las gráficas del salto de 2012 y el Test de Chow de [06_EVIDENCIA_CIENTIFICA_Y_METRICAS.md](file:///d:/ProyectoHackattonNasa/PyrosHarmonizers1/pitch/06_EVIDENCIA_CIENTIFICA_Y_METRICAS.md).
+- [ ] **Diapositivas de Respaldo:** Tener a mano las gráficas del salto de 2012 y el Test de Chow de [06_EVIDENCIA_CIENTIFICA_Y_METRICAS.md](file:///d:/ProyectoHackattonNasa/PyrosHarmonizers1/docs/06_EVIDENCIA_CIENTIFICA_Y_METRICAS.md).
+

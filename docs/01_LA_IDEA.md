@@ -71,3 +71,4 @@ El Reto #8 de la NASA Space Apps Challenge exige:
 2. *Explicar y corregir la discrepancia de resolución (1 km vs 375 m).* 👉 **Resuelto mediante la huella poligonal y grillas hexagonales Uber H3 (Res 7 y 8).**
 3. *Construir un calendario o régimen de fuegos para evaluar patrones históricos.* 👉 **Resuelto con el Burning Activity Calendar y matrices de calor multianuales.**
 4. *Demostrar la solución en un caso de estudio real.* 👉 **Resuelto con el caso emblemático de la Chiquitanía boliviana y la cuenca amazónica (2000–2026).**
+

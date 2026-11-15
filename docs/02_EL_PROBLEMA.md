@@ -106,3 +106,4 @@ En el departamento de Santa Cruz, Bolivia, y en el bosque seco chiquitano (decla
 ## 🏁 En Resumen: El Desafío
 Se requiere un algoritmo que entienda la **física orbital**, que agrupe observaciones coincidentes en el **espacio y el tiempo**, y que calibre la **energía radiativa** para devolverle a la ciencia una serie histórica pura, continua y confiable.  
 **Ese algoritmo es PyrosHarmonizer.**
+

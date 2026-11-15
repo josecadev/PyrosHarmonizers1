@@ -106,3 +106,4 @@ Para los brigadistas en el terreno que no pueden llevar una laptop con conexión
 * **Métricas Oficiales:** Muestra el resultado formal del **Test de Chow**, el número de hectáreas equivalentes y el HFII pico.
 * **Directivas Operativas:** Instrucciones específicas para el despliegue de brigadas de primera respuesta en los municipios de San Ignacio de Velasco, Roboré, Concepción y San Matías.
 * **Seguridad y Trazabilidad:** Incluye sello digital con hash SHA-256 generado al momento de la exportación para certidumbre jurídica y auditoría de la ABT.
+
