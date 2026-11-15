@@ -10,6 +10,21 @@ Proyecto desarrollado para el **2026 NASA International Space Apps Challenge** (
 
 **PyrosHarmonizer** es una aplicación web y motor analítico diseñado para armonizar los datos satelitales de incendios de la NASA (sensores **MODIS** y **VIIRS**).
 
+---
+
+## 🎤 Kit Maestro de Exposición y Pitch (Jurado NASA)
+
+Hemos preparado una suite documental completa en la carpeta [`pitch/`](file:///d:/ProyectoHackattonNasa/PyrosHarmonizers1/pitch/README.md) diseñada para la defensa ante el jurado calificador:
+
+1. [**01_LA_IDEA.md**](file:///d:/ProyectoHackattonNasa/PyrosHarmonizers1/pitch/01_LA_IDEA.md): Visión, Elevator Pitch de 30s, propuesta de valor y beneficiarios.
+2. [**02_EL_PROBLEMA.md**](file:///d:/ProyectoHackattonNasa/PyrosHarmonizers1/pitch/02_EL_PROBLEMA.md): La fractura de 2012, el salto instrumental del 320% y el caso Chiquitanía.
+3. [**03_COMO_LO_RESUELVE.md**](file:///d:/ProyectoHackattonNasa/PyrosHarmonizers1/pitch/03_COMO_LO_RESUELVE.md): Las 4 etapas científicas (geometría real, ST-DBSCAN, HFII y grillas H3).
+4. [**04_GUION_PITCH_3_MINUTOS.md**](file:///d:/ProyectoHackattonNasa/PyrosHarmonizers1/pitch/04_GUION_PITCH_3_MINUTOS.md): Guion palabra por palabra cronometrado para la exposición en vivo.
+5. [**05_PREGUNTAS_Y_RESPUESTAS_JURADO.md**](file:///d:/ProyectoHackattonNasa/PyrosHarmonizers1/pitch/05_PREGUNTAS_Y_RESPUESTAS_JURADO.md): 15 respuestas blindadas a las preguntas técnicas y científicas más difíciles.
+6. [**06_EVIDENCIA_CIENTIFICA_Y_METRICAS.md**](file:///d:/ProyectoHackattonNasa/PyrosHarmonizers1/pitch/06_EVIDENCIA_CIENTIFICA_Y_METRICAS.md): Fórmulas KaTeX, resultados del Test de Chow ($F = 1.12$) y validación Sentinel-2.
+
+---
+
 El problema principal que resuelve es el **"Efecto 2012"**:
 - **MODIS (1 km):** Cuenta con datos desde el año 2000, pero tiene menor resolución espacial.
 - **VIIRS (375 m):** Opera desde 2012 con mucha mayor sensibilidad, lo que genera entre **3 y 5 veces más puntos de calor** sobre el mismo incendio.
