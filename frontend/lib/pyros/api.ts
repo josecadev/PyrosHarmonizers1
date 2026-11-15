@@ -10,7 +10,7 @@ import {
   type MonthlyMatrixResult,
   type Region,
 } from './data'
-import { buildScene, type Detection, type FireEvent, type HexCell } from './scene'
+import { buildScene, latLonToKm, type Detection, type DetectionRegime, type FireEvent, type HexCell } from './scene'
 
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:5000/api/v1'
 const SECONDARY_API_BASE_URL = 'http://localhost:8000/api/v1'
@@ -156,10 +156,43 @@ export async function fetchModisHotspots(
     const res = await fetchWithTimeout<{ data?: Array<Record<string, unknown>> }>(
       `/hotspots/modis?${params.toString()}`,
     )
-    if (!res.data || res.data.length === 0) {
+    const rawData = res?.data
+    if (!rawData || rawData.length === 0) {
       return { source: 'local', data: localModis }
     }
-    return { source: 'api', data: localModis }
+    const mapped: Detection[] = rawData.map((item, idx) => {
+      const lat = Number(item.latitude)
+      const lon = Number(item.longitude)
+      const [x, y] = latLonToKm(region, lat, lon)
+      const scan = Number(item.scan ?? 1.2)
+      const track = Number(item.track ?? 1.1)
+      const frp = Number(item.frp ?? 15)
+      return {
+        id: String(item.id ?? `MOD-${idx + 1}`),
+        sensor: 'MODIS' as const,
+        satellite: String(item.satellite ?? 'TERRA'),
+        scan,
+        track,
+        areaKm2: scan * track,
+        areaCorrection: Math.sqrt(1 / Math.max(0.1, scan * track)),
+        solarGamma: item.daynight === 'N' ? 0.72 : 1.0,
+        latitude: lat,
+        longitude: lon,
+        x,
+        y,
+        brightness: Number(item.brightness ?? 310),
+        bright_ti5: item.bright_t31 ? Number(item.bright_t31) : undefined,
+        acq_date: String(item.acq_date ?? isoDate),
+        acq_time: String(item.acq_time ?? '1330'),
+        daynight: (item.daynight === 'N' ? 'N' : 'D') as 'D' | 'N',
+        confidence: String(item.confidence ?? 'nominal'),
+        lowConfidence: Number(item.confidence ?? 80) < 30,
+        frp,
+        clusterId: idx + 1,
+        h3: String(item.h3_r8 ?? 'h3-cell'),
+      }
+    })
+    return { source: 'api', data: mapped }
   } catch {
     return { source: 'local', data: localModis }
   }
@@ -188,10 +221,43 @@ export async function fetchViirsHotspots(
     const res = await fetchWithTimeout<{ data?: Array<Record<string, unknown>> }>(
       `/hotspots/viirs?${params.toString()}`,
     )
-    if (!res.data || res.data.length === 0) {
+    const rawData = res?.data
+    if (!rawData || rawData.length === 0) {
       return { source: 'local', data: localViirs }
     }
-    return { source: 'api', data: localViirs }
+    const mapped: Detection[] = rawData.map((item, idx) => {
+      const lat = Number(item.latitude)
+      const lon = Number(item.longitude)
+      const [x, y] = latLonToKm(region, lat, lon)
+      const scan = Number(item.scan ?? 0.38)
+      const track = Number(item.track ?? 0.38)
+      const frp = Number(item.frp ?? 8)
+      return {
+        id: String(item.id ?? `VII-${idx + 1}`),
+        sensor: 'VIIRS' as const,
+        satellite: String(item.satellite ?? 'SUOMI-NPP'),
+        scan,
+        track,
+        areaKm2: scan * track,
+        areaCorrection: Math.sqrt(1 / Math.max(0.05, scan * track)),
+        solarGamma: item.daynight === 'N' ? 0.72 : 1.0,
+        latitude: lat,
+        longitude: lon,
+        x,
+        y,
+        brightness: Number(item.bright_ti4 ?? item.brightness ?? 330),
+        bright_ti5: item.bright_ti5 ? Number(item.bright_ti5) : undefined,
+        acq_date: String(item.acq_date ?? isoDate),
+        acq_time: String(item.acq_time ?? '1330'),
+        daynight: (item.daynight === 'N' ? 'N' : 'D') as 'D' | 'N',
+        confidence: String(item.confidence ?? 'nominal'),
+        lowConfidence: String(item.confidence ?? '').toLowerCase() === 'low',
+        frp,
+        clusterId: idx + 1,
+        h3: String(item.h3_r8 ?? 'h3-cell'),
+      }
+    })
+    return { source: 'api', data: mapped }
   } catch {
     return { source: 'local', data: localViirs }
   }
@@ -236,10 +302,46 @@ export async function fetchHarmonizedEvents(
     const res = await fetchWithTimeout<{ data?: Array<Record<string, unknown>> }>(
       `/harmonized/events?${params.toString()}`,
     )
-    if (!res.data || res.data.length === 0) {
+    const rawData = res?.data
+    if (!rawData || rawData.length === 0) {
       return { source: 'local', data: scene.events }
     }
-    return { source: 'api', data: scene.events }
+    const mapped: FireEvent[] = rawData.map((item, idx) => {
+      const geom = item.geometry as { type: string; coordinates: number[][][] } | undefined
+      const coords = geom?.coordinates?.[0] ?? []
+      const rawHull: [number, number][] = coords.map(([lon, lat]) => latLonToKm(region, lat, lon))
+      const lat = Number(item.latitude ?? coords[0]?.[1] ?? region.lat)
+      const lon = Number(item.longitude ?? coords[0]?.[0] ?? region.lon)
+      const centroid = latLonToKm(region, lat, lon)
+      const modis = Number(item.modis_count ?? 0)
+      const viirs = Number(item.viirs_count ?? 0)
+      const frpCal = Number(item.calibrated_frp ?? item.hfii_score ?? 10)
+      const rawFrp = frpCal * (modis > 0 && viirs > 0 ? 1.6 : 1.2)
+      const areaHa = Number(item.area_ha ?? 50)
+      const regime: DetectionRegime = modis > 0 && viirs > 0 ? 'CO_DETECTED' : modis > 0 ? 'MODIS_ONLY' : 'VIIRS_ONLY'
+
+      return {
+        id: idx + 1,
+        eventCode: String(item.event_id ?? `EVT-${year}-${idx + 1}`),
+        hull: rawHull.length >= 3 ? rawHull : scene.events[idx % scene.events.length]?.hull ?? [[0,0], [1,0], [0,1]],
+        areaKm2: areaHa / 100,
+        centroid,
+        latitude: lat,
+        longitude: lon,
+        detections: modis + viirs,
+        modis,
+        viirs,
+        deltaT: 2.1,
+        rawFrpSum: rawFrp,
+        frpCal,
+        acq_date: String(item.start_time ?? isoDate).slice(0, 10),
+        daynight: 'D',
+        detectionRegime: regime,
+        spatialDispersionM: Math.round(Math.sqrt(areaHa * 10000)),
+        members: scene.events[idx % scene.events.length]?.members ?? [],
+      }
+    })
+    return { source: 'api', data: mapped }
   } catch {
     return { source: 'local', data: scene.events }
   }

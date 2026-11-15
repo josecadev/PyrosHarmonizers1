@@ -116,6 +116,15 @@ export function kmToLatLon(region: Region, x: number, y: number) {
   return { latitude: latTop - y / KM_PER_DEG_LAT, longitude: lonLeft + x / kmPerDegLon }
 }
 
+export function latLonToKm(region: Region, latitude: number, longitude: number): [number, number] {
+  const latTop = region.lat + MAP_H_KM / 2 / KM_PER_DEG_LAT
+  const kmPerDegLon = 111.32 * Math.cos((region.lat * Math.PI) / 180)
+  const lonLeft = region.lon - MAP_W_KM / 2 / kmPerDegLon
+  const y = (latTop - latitude) * KM_PER_DEG_LAT
+  const x = (longitude - lonLeft) * kmPerDegLon
+  return [x, y]
+}
+
 export function getBounds(region: Region) {
   const tl = kmToLatLon(region, 0, 0)
   const br = kmToLatLon(region, MAP_W_KM, MAP_H_KM)
