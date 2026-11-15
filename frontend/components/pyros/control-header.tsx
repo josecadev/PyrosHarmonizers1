@@ -209,10 +209,10 @@ export function ControlHeader({
 
         {/* Center / Controls: Region & Environmental Risk */}
         <div className="flex flex-wrap items-center gap-2.5">
-          {/* Region Selector */}
+          {/* Rutas Rápidas / Region Selector */}
           <div className="flex items-center bg-slate-900/90 border border-slate-700/60 rounded-md px-2.5 py-1 text-xs">
-            <span className="text-amber-400 mr-1.5 text-xs">📍</span>
-            <label className="sr-only">Región</label>
+            <span className="text-slate-400 mr-2 text-xs font-mono font-medium">Rutas Rápidas:</span>
+            <label className="sr-only">Rutas Rápidas</label>
             <select
               value={regionId}
               onChange={(e) => onRegionChange(e.target.value)}

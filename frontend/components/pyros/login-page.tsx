@@ -76,6 +76,13 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
             </div>
           </div>
           <div className="flex items-center gap-3">
+            <Link
+              href="/"
+              className="flex items-center gap-1 px-2.5 py-1 bg-[#1a2035] hover:bg-[#252f4a] rounded-lg border border-white/10 font-mono text-[11px] text-[#4cd7f6] hover:text-white transition-colors"
+            >
+              <span className="material-symbols-outlined text-sm">arrow_back</span>
+              <span>Inicio (Landing)</span>
+            </Link>
             <div className="flex items-center gap-1.5 px-2.5 py-1 bg-[#23293c] rounded-full border border-white/5">
               <span className="material-symbols-outlined text-sm text-[#ffb95f]">verified</span>
               <span className="font-mono text-[11px] text-[#ffb95f] font-medium">Proyecto en Evaluación Oficial</span>

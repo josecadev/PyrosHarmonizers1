@@ -148,21 +148,38 @@ export function AppSidebar({
 
       {/* Bottom Navigation & Meta Group */}
       <div className="p-3 border-t border-slate-800/80 bg-slate-950/80 space-y-2.5">
-        {/* Portal / Login link */}
-        <Link
-          href="/"
-          className={cn(
-            'flex items-center justify-between px-3 py-2 rounded-lg bg-slate-900/70 border border-slate-800 text-slate-300 hover:text-white hover:border-slate-700 transition-colors text-xs font-mono',
-            collapsed && 'justify-center px-1',
-          )}
-          title="Salir al Portal de Acceso (Login)"
-        >
-          <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-base text-slate-400">person</span>
-            {!collapsed && <span>Portal / Login</span>}
-          </div>
-          {!collapsed && <span className="text-[10px] text-emerald-400">● Conectado</span>}
-        </Link>
+        {/* Inicio (Landing) & Portal / Login links */}
+        <div className="flex flex-col gap-1.5">
+          <Link
+            href="/"
+            className={cn(
+              'flex items-center justify-between px-3 py-2 rounded-lg bg-slate-900/70 border border-slate-800 text-slate-300 hover:text-cyan-300 hover:border-cyan-500/40 transition-colors text-xs font-mono',
+              collapsed && 'justify-center px-1',
+            )}
+            title="Volver a la Portada (Inicio)"
+          >
+            <div className="flex items-center gap-2">
+              <span className="material-symbols-outlined text-base text-cyan-400">home</span>
+              {!collapsed && <span>Inicio (Landing)</span>}
+            </div>
+            {!collapsed && <span className="text-[10px] text-cyan-400">Web</span>}
+          </Link>
+
+          <Link
+            href="/login"
+            className={cn(
+              'flex items-center justify-between px-3 py-2 rounded-lg bg-slate-900/70 border border-slate-800 text-slate-300 hover:text-white hover:border-slate-700 transition-colors text-xs font-mono',
+              collapsed && 'justify-center px-1',
+            )}
+            title="Salir al Portal de Acceso (Login)"
+          >
+            <div className="flex items-center gap-2">
+              <span className="material-symbols-outlined text-base text-slate-400">person</span>
+              {!collapsed && <span>Portal / Login</span>}
+            </div>
+            {!collapsed && <span className="text-[10px] text-emerald-400">● Conectado</span>}
+          </Link>
+        </div>
 
         {/* Hackathon & Version Badge */}
         {!collapsed && (

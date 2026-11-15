@@ -1,5 +1,5 @@
-import { LoginPage } from '@/components/pyros/login-page'
+import { LandingPage } from '@/components/pyros/landing-page'
 
 export default function RootPage() {
-  return <LoginPage />
+  return <LandingPage />
 }
