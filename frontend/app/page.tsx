@@ -1,5 +1,5 @@
-import { Dashboard } from '@/components/pyros/dashboard'
+import { LoginPage } from '@/components/pyros/login-page'
 
-export default function Page() {
-  return <Dashboard />
+export default function RootPage() {
+  return <LoginPage />
 }

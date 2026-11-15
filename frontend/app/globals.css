@@ -174,4 +174,19 @@
   .bg-fire-extreme {
     background-color: var(--heat-4);
   }
+
+  @keyframes pulseGlow {
+    0%, 100% { opacity: 0.9; transform: scale(1); filter: drop-shadow(0 0 6px rgba(239, 68, 68, 0.7)); }
+    50% { opacity: 0.5; transform: scale(0.96); filter: drop-shadow(0 0 2px rgba(239, 68, 68, 0.2)); }
+  }
+  .status-pulse-red {
+    animation: pulseGlow 1.8s ease-in-out infinite;
+  }
+  .grid-radar-bg {
+    background-image: radial-gradient(rgba(34, 211, 238, 0.08) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+  .scan-line {
+    background: linear-gradient(180deg, transparent 0%, rgba(34, 211, 238, 0.12) 50%, transparent 100%);
+  }
 }
