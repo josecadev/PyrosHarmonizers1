@@ -13,7 +13,7 @@ class Settings(BaseSettings):
 
     # PostgreSQL 16 + PostGIS 3.4
     DATABASE_URL: str = Field(
-        default="postgresql://pyros_user:pyros_password@localhost:5432/pyrosharmonizer_db",
+        default="postgresql://pyros_user:pyros_password@localhost:5001/pyrosharmonizer_db",
         description="SQLAlchemy Database URL for PostGIS"
     )
 

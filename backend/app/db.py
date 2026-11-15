@@ -1,7 +1,10 @@
+from pathlib import Path
 import psycopg
 from psycopg.rows import dict_row
 
 from backend.app.config import get_settings
+
+__path__ = [str(Path(__file__).resolve().parent / "db")]
 
 
 class Database:
@@ -29,7 +32,11 @@ class Database:
                        ) AS last_ingestion
                 """
             )
-            return {"ok": True, "postgis_version": row["postgis_version"] if row else None, "last_ingestion": row["last_ingestion"] if row else None}
+            return {
+                "ok": True,
+                "postgis_version": row["postgis_version"] if row else None,
+                "last_ingestion": row["last_ingestion"] if row else None,
+            }
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 

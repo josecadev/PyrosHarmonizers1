@@ -30,7 +30,12 @@ def init_database(db_url: str = None, schema_file_path: str = None) -> bool:
     logger.info(f"Targeting Database: {target_url.split('@')[-1] if '@' in target_url else target_url}")
 
     repo_root = Path(__file__).resolve().parent.parent.parent
-    sql_file = Path(schema_file_path) if schema_file_path else repo_root / "docs" / "pyrosharmonizer-schema.sql"
+    if schema_file_path:
+        sql_file = Path(schema_file_path)
+    elif (repo_root / "docs" / "pyrosharmonizer-schema.sql").exists():
+        sql_file = repo_root / "docs" / "pyrosharmonizer-schema.sql"
+    else:
+        sql_file = backend_dir / "docs" / "pyrosharmonizer-schema.sql"
 
     if not sql_file.exists():
         logger.error(f"Schema SQL file not found at: {sql_file}")

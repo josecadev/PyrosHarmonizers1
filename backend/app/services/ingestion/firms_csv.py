@@ -15,9 +15,7 @@ from pathlib import Path
 from datetime import datetime, date, timezone
 from typing import Optional, Dict, Any, List, Tuple
 import pandas as pd
-from sqlalchemy import insert, text
 from sqlalchemy.orm import Session
-from geoalchemy2.shape import from_shape
 
 from app.models.ingestion import IngestionLog
 from app.models.modis import RawModisHotspot
@@ -42,15 +40,33 @@ class FirmsCsvIngestionService:
         self.db = db_session
 
     def detect_sensor_type(self, df_sample: pd.DataFrame, file_path: str = "") -> str:
-        """Determines whether the CSV file belongs to MODIS or VIIRS based on column signatures."""
+        """Determines whether the CSV file belongs to MODIS or VIIRS based on column & value signatures."""
         cols = [c.lower().strip() for c in df_sample.columns]
         fname = file_path.lower()
 
-        if "bright_ti4" in cols or "bright_ti5" in cols or "viirs" in fname:
+        if any(tag in fname for tag in ("viirs", "sv-c2", "suomi", "snpp", "j1v", "j2v", "noaa")):
             return "VIIRS"
-        elif "brightness" in cols or "bright_t31" in cols or "modis" in fname:
+        if any(tag in fname for tag in ("modis", "m-c61", "mcd14")):
             return "MODIS"
-        return "VIIRS" if any("viirs" in c for c in cols) else "MODIS"
+
+        if "bright_ti4" in cols or "bright_ti5" in cols:
+            return "VIIRS"
+
+        # Inspect sample values in satellite / instrument / confidence columns
+        if not df_sample.empty:
+            for col_name in ("instrument", "satellite"):
+                if col_name in df_sample.columns:
+                    vals = " ".join(df_sample[col_name].astype(str).str.upper().tolist())
+                    if any(v in vals for v in ("VIIRS", "SNPP", "NPP", "NOAA", "J1", "J2")):
+                        return "VIIRS"
+                    if any(v in vals for v in ("MODIS", "TERRA", "AQUA")):
+                        return "MODIS"
+            if "confidence" in df_sample.columns:
+                conf_vals = set(df_sample["confidence"].astype(str).str.strip().str.lower().tolist())
+                if conf_vals & {"l", "n", "h", "low", "nominal", "high"}:
+                    return "VIIRS"
+
+        return "MODIS"
 
     def normalize_chunk_modis(
         self,
@@ -59,8 +75,19 @@ class FirmsCsvIngestionService:
         apply_cleaning: bool = True,
     ) -> List[Dict[str, Any]]:
         """Normalizes a chunk of MODIS records."""
-        # Standardize column names to lowercase
         df_chunk.columns = [c.strip().lower() for c in df_chunk.columns]
+
+        if bbox and "latitude" in df_chunk.columns and "longitude" in df_chunk.columns:
+            min_lon, min_lat, max_lon, max_lat = bbox
+            df_chunk = df_chunk[
+                (df_chunk["longitude"] >= min_lon)
+                & (df_chunk["longitude"] <= max_lon)
+                & (df_chunk["latitude"] >= min_lat)
+                & (df_chunk["latitude"] <= max_lat)
+            ]
+
+        if df_chunk.empty:
+            return []
 
         if apply_cleaning:
             df_chunk = apply_quality_filters(df_chunk, sensor_type="MODIS")
@@ -82,12 +109,10 @@ class FirmsCsvIngestionService:
             confidence = normalize_confidence_modis(row.get("confidence", 0))
             daynight = normalize_daynight(row.get("daynight", "D"))
 
-            # Calculate pixel footprint polygon
-            poly, poly_wkt = calculate_pixel_geometry(lat, lon, scan, track)
+            _, poly_wkt = calculate_pixel_geometry(lat, lon, scan, track)
             pt_wkt = f"SRID=4326;POINT({lon:.6f} {lat:.6f})"
             poly_wkt_srid = f"SRID=4326;{poly_wkt}"
 
-            # Calculate H3 indices if available
             h7, h8, h9 = compute_h3_indices(lat, lon)
 
             record = {
@@ -103,7 +128,7 @@ class FirmsCsvIngestionService:
                 "satellite": satellite,
                 "instrument": "MODIS",
                 "confidence": confidence,
-                "version": str(row.get("version", "6.1N")),
+                "version": str(row.get("version", "6.1N"))[:10],
                 "bright_t31": round(float(row.get("bright_t31", 0.0)), 2) if pd.notna(row.get("bright_t31")) else None,
                 "frp": round(float(row.get("frp", 0.0)), 2) if pd.notna(row.get("frp")) else 0.0,
                 "daynight": daynight,
@@ -130,6 +155,18 @@ class FirmsCsvIngestionService:
         """Normalizes a chunk of VIIRS records."""
         df_chunk.columns = [c.strip().lower() for c in df_chunk.columns]
 
+        if bbox and "latitude" in df_chunk.columns and "longitude" in df_chunk.columns:
+            min_lon, min_lat, max_lon, max_lat = bbox
+            df_chunk = df_chunk[
+                (df_chunk["longitude"] >= min_lon)
+                & (df_chunk["longitude"] <= max_lon)
+                & (df_chunk["latitude"] >= min_lat)
+                & (df_chunk["latitude"] <= max_lat)
+            ]
+
+        if df_chunk.empty:
+            return []
+
         if apply_cleaning:
             df_chunk = apply_quality_filters(df_chunk, sensor_type="VIIRS")
 
@@ -150,20 +187,22 @@ class FirmsCsvIngestionService:
             confidence = normalize_confidence_viirs(row.get("confidence", "nominal"))
             daynight = normalize_daynight(row.get("daynight", "D"))
 
-            # Calculate pixel footprint polygon
-            poly, poly_wkt = calculate_pixel_geometry(lat, lon, scan, track)
+            _, poly_wkt = calculate_pixel_geometry(lat, lon, scan, track)
             pt_wkt = f"SRID=4326;POINT({lon:.6f} {lat:.6f})"
             poly_wkt_srid = f"SRID=4326;{poly_wkt}"
 
-            # Calculate H3 indices if available
             h7, h8, h9 = compute_h3_indices(lat, lon)
+
+            # Support both standard VIIRS (bright_ti4/bright_ti5) and FIRMS Archive VIIRS (brightness/bright_t31)
+            raw_ti4 = row.get("bright_ti4") if pd.notna(row.get("bright_ti4")) else row.get("brightness", 0.0)
+            raw_ti5 = row.get("bright_ti5") if pd.notna(row.get("bright_ti5")) else row.get("bright_t31")
 
             record = {
                 "id": uuid.uuid4(),
                 "latitude": round(lat, 5),
                 "longitude": round(lon, 5),
-                "bright_ti4": round(float(row.get("bright_ti4", 0.0)), 2),
-                "bright_ti5": round(float(row.get("bright_ti5", 0.0)), 2) if pd.notna(row.get("bright_ti5")) else None,
+                "bright_ti4": round(float(raw_ti4 or 0.0), 2),
+                "bright_ti5": round(float(raw_ti5), 2) if pd.notna(raw_ti5) else None,
                 "scan": round(scan, 2),
                 "track": round(track, 2),
                 "acq_date": acq_d,
@@ -172,7 +211,7 @@ class FirmsCsvIngestionService:
                 "satellite": satellite,
                 "instrument": "VIIRS",
                 "confidence": confidence,
-                "version": str(row.get("version", "2.0N")),
+                "version": str(row.get("version", "2.0N"))[:10],
                 "frp": round(float(row.get("frp", 0.0)), 2) if pd.notna(row.get("frp")) else 0.0,
                 "daynight": daynight,
                 "geom": pt_wkt,
@@ -196,6 +235,7 @@ class FirmsCsvIngestionService:
         chunk_size: int = 10000,
         apply_cleaning: bool = True,
         bbox: Optional[Tuple[float, float, float, float]] = None,
+        max_rows: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Reads, validates, normalizes, and ingests a NASA FIRMS CSV archive file."""
         path = Path(file_path)
@@ -233,6 +273,11 @@ class FirmsCsvIngestionService:
 
         try:
             for chunk_idx, df_chunk in enumerate(pd.read_csv(file_path, chunksize=chunk_size, low_memory=False)):
+                if max_rows is not None and total_read >= max_rows:
+                    break
+                if max_rows is not None and total_read + len(df_chunk) > max_rows:
+                    df_chunk = df_chunk.iloc[: max_rows - total_read]
+
                 chunk_len = len(df_chunk)
                 total_read += chunk_len
 
@@ -266,8 +311,8 @@ class FirmsCsvIngestionService:
                 "records_processed": total_read,
                 "records_inserted": total_inserted,
                 "records_filtered_or_out_of_bounds": total_read - total_inserted,
-                "batch_date_start": min_date,
-                "batch_date_end": max_date,
+                "batch_date_start": str(min_date) if min_date else None,
+                "batch_date_end": str(max_date) if max_date else None,
                 "duration_seconds": round(duration_sec, 2),
             }
 
