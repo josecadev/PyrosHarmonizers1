@@ -405,8 +405,8 @@ export function ControlHeader({
                 >
                   <FileText className="size-3.5 text-viirs" aria-hidden />
                   <span className="flex flex-col">
-                    <span>Reporte Ejecutivo PDF</span>
-                    <span className="font-mono text-[10px] text-muted-foreground">Resumen técnico e indicadores</span>
+                    <span>Boletín Oficial (PDF)</span>
+                    <span className="font-mono text-[10px] text-muted-foreground">Boletín A4 con gráficas vectoriales</span>
                   </span>
                 </button>
               </div>
