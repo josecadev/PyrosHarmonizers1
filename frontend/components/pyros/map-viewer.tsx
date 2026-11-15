@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Columns2, Compass, Expand, Eye, Layers, Map as MapIcon, Maximize2, Minus, Plus, ShieldAlert } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { REGIONS, fmt, severity, type CalendarDay, type Filters, type Mode, type Region } from '@/lib/pyros/data'
+import { REGIONS, fmt, severity, type CalendarDay, type Filters, type Kpis, type Mode, type Region } from '@/lib/pyros/data'
 import {
   MAP_H_KM,
   MAP_W_KM,
@@ -35,6 +35,7 @@ interface Props {
   region: Region
   day: CalendarDay
   year: number
+  kpis?: Kpis
   filters: Filters
   splitScreen: boolean
   onSplitScreenChange: (v: boolean) => void
@@ -80,7 +81,7 @@ function tileYToLat(y: number, z: number): number {
   return (180 / Math.PI) * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)))
 }
 
-export function MapViewer({ mode, scene, region, day, filters, splitScreen, onSplitScreenChange, onExportPdf }: Props) {
+export function MapViewer({ mode, scene, region, day, year, kpis, filters, splitScreen, onSplitScreenChange, onExportPdf }: Props) {
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [splitPct, setSplitPct] = useState(50)
@@ -1088,6 +1089,12 @@ export function MapViewer({ mode, scene, region, day, filters, splitScreen, onSp
       {selection && (
         <Inspector
           selection={selection}
+          scene={scene}
+          day={day}
+          region={region}
+          year={year}
+          kpis={kpis}
+          mode={mode}
           onSelect={(s) => setSelection(s)}
           onClose={() => {
             setInspectorDismissed(true)

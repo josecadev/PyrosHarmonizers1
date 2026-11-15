@@ -160,32 +160,32 @@ export function BurnCalendar({ calendar, year, onYearChange, doy, onDoyChange, m
             </button>
           </div>
 
-          <div className="rounded border border-border bg-background px-3 py-2" aria-live="polite">
-            <div className="flex items-center justify-between gap-2">
-              <p className="truncate text-xs capitalize">{dateFmt.format(focus.date)}</p>
-              <span className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px]">
+          <div className="h-[96px] overflow-hidden rounded border border-border bg-background px-3 py-2" aria-live="polite">
+            <div className="flex items-center justify-between gap-2 whitespace-nowrap">
+              <p className="min-w-0 flex-1 truncate text-xs capitalize">{dateFmt.format(focus.date)}</p>
+              <span className="shrink-0 whitespace-nowrap rounded border border-border px-1.5 py-0.5 font-mono text-[10px] tabular-nums">
                 P{Math.round(focus.percentileRank * 100)} · Z={focus.zScore >= 0 ? `+${focus.zScore}` : focus.zScore}
               </span>
             </div>
-            <div className="mt-1.5 grid grid-cols-3 gap-2 font-mono text-[11px]">
-              <div className="flex flex-col">
-                <span className="text-muted-foreground">HFII ({focus.severityCode})</span>
-                <span>{focus.hfii} / 100</span>
+            <div className="mt-1.5 grid grid-cols-3 gap-2 font-mono text-[11px] whitespace-nowrap">
+              <div className="flex min-w-0 flex-col">
+                <span className="truncate text-muted-foreground">HFII ({focus.severityCode.slice(0, 4)})</span>
+                <span className="truncate tabular-nums">{focus.hfii} / 100</span>
               </div>
-              <div className="flex flex-col">
-                <span className="text-muted-foreground">{mode === 'h3' ? 'celdas' : 'eventos'}</span>
-                <span>{fmt(mode === 'h3' ? Math.round(focus.events * 1.38) : focus.events)}</span>
+              <div className="flex min-w-0 flex-col">
+                <span className="truncate text-muted-foreground">{mode === 'h3' ? 'celdas' : 'eventos'}</span>
+                <span className="truncate tabular-nums">{fmt(mode === 'h3' ? Math.round(focus.events * 1.38) : focus.events)}</span>
               </div>
-              <div className="flex flex-col">
-                <span className="text-muted-foreground">FRP Cal.</span>
-                <span>{fmt(focus.frp)} MW</span>
+              <div className="flex min-w-0 flex-col">
+                <span className="truncate text-muted-foreground">FRP Cal.</span>
+                <span className="truncate tabular-nums">{fmt(focus.frp)} MW</span>
               </div>
             </div>
             {activeMonthCell && (
-              <div className="mt-1.5 flex items-center justify-between border-t border-border pt-1.5 font-mono text-[10px]">
+              <div className="mt-1.5 flex items-center justify-between gap-2 border-t border-border pt-1.5 font-mono text-[10px] whitespace-nowrap">
                 <span
                   className={cn(
-                    'flex items-center gap-1',
+                    'flex min-w-0 items-center gap-1 truncate',
                     activeMonthCell.alertLevel === 'RED'
                       ? 'text-viirs'
                       : activeMonthCell.alertLevel === 'ORANGE'
@@ -194,10 +194,12 @@ export function BurnCalendar({ calendar, year, onYearChange, doy, onDoyChange, m
                   )}
                 >
                   {activeMonthCell.zScore >= 1.5 && <AlertTriangle className="size-3 shrink-0" aria-hidden />}
-                  Mes {MONTH_SHORT[currentMonthIdx]}: Z={activeMonthCell.zScore >= 0 ? `+${activeMonthCell.zScore}` : activeMonthCell.zScore} (
-                  {activeMonthCell.alertLevel})
+                  <span className="truncate">
+                    Mes {MONTH_SHORT[currentMonthIdx]}: Z={activeMonthCell.zScore >= 0 ? `+${activeMonthCell.zScore}` : activeMonthCell.zScore} (
+                    {activeMonthCell.alertLevel})
+                  </span>
                 </span>
-                <span className="text-muted-foreground">
+                <span className="shrink-0 text-muted-foreground">
                   Inicio: {onsetDelta < 0 ? `${Math.abs(onsetDelta)}d antes` : onsetDelta > 0 ? `+${onsetDelta}d` : 'Normal'}
                 </span>
               </div>
@@ -207,7 +209,7 @@ export function BurnCalendar({ calendar, year, onYearChange, doy, onDoyChange, m
 
         <div className="flex min-w-0 flex-1 flex-col gap-1.5">
           {calMode === 'daily' ? (
-            <div className="scrollbar-thin overflow-x-auto">
+            <div className="scrollbar-thin overflow-x-auto overflow-y-hidden py-0.5">
               <div className="flex min-w-[720px] gap-1.5">
                 <div className="flex flex-col gap-[3px] pt-4" aria-hidden>
                   {WEEKDAYS.map((w, i) => (

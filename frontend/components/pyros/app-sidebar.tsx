@@ -1,17 +1,17 @@
 'use client'
 
 import Link from 'next/link'
-import { CalendarDays, Columns2, Database, FlaskConical, Flame, Map as MapIcon, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { CalendarDays, Columns2, Database, FlaskConical, Flame, Home, Map as MapIcon, PanelLeftClose, PanelLeftOpen, UserCircle2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { UI_DICT, type Locale } from '@/lib/pyros/i18n-rbac'
 
 export type View = 'map' | 'calendar' | 'lab' | 'data'
 
-export const VIEWS: { id: View; index: string; route: string; label: string; hint: string; icon: typeof MapIcon; emoji: string }[] = [
-  { id: 'map', index: '01', route: '/map', label: 'Visor Espacial', hint: 'Huella de píxel y Split-Screen', icon: MapIcon, emoji: '🛰️' },
-  { id: 'calendar', index: '02', route: '/calendar', label: 'Calendario de Quemas', hint: 'HFII diario y Matriz 2000–2026', icon: CalendarDays, emoji: '📅' },
-  { id: 'lab', index: '03', route: '/lab', label: 'Laboratorio', hint: 'Armonización y Test de Chow', icon: FlaskConical, emoji: '🧪' },
-  { id: 'data', index: '04', route: '/export', label: 'Explorador de Datos', hint: 'Registros FIRMS y exportación', icon: Database, emoji: '📊' },
+export const VIEWS: { id: View; index: string; route: string; label: string; hint: string; icon: typeof MapIcon }[] = [
+  { id: 'map', index: '01', route: '/map', label: 'Visor Espacial', hint: 'Huella de píxel y Split-Screen', icon: MapIcon },
+  { id: 'calendar', index: '02', route: '/calendar', label: 'Calendario de Quemas', hint: 'HFII diario y Matriz 2000–2026', icon: CalendarDays },
+  { id: 'lab', index: '03', route: '/lab', label: 'Laboratorio', hint: 'Armonización y Test de Chow', icon: FlaskConical },
+  { id: 'data', index: '04', route: '/export', label: 'Explorador de Datos', hint: 'Registros FIRMS y exportación', icon: Database },
 ]
 
 export function AppSidebar({
@@ -84,12 +84,13 @@ export function AppSidebar({
                     : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60 border border-transparent hover:border-slate-800',
                 )}
               >
-                {active && (
-                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 mt-1.5 shadow-[0_0_6px_#22d3ee] shrink-0" />
-                )}
-                {!active && (
-                  <span className="text-xs mt-0.5 opacity-60 group-hover:opacity-100 shrink-0">{v.emoji}</span>
-                )}
+                <v.icon
+                  className={cn(
+                    'size-4 mt-0.5 shrink-0 transition-colors',
+                    active ? 'text-cyan-400' : 'text-slate-400 group-hover:text-slate-200',
+                  )}
+                  aria-hidden
+                />
 
                 <div className={cn('hidden min-w-0 flex-1 flex-col', !collapsed && 'md:flex')}>
                   <div className="flex items-center justify-between">
@@ -122,11 +123,13 @@ export function AppSidebar({
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60 border-transparent hover:border-slate-800',
               )}
             >
-              {view === 'map' && splitScreen ? (
-                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 mt-1.5 shadow-[0_0_6px_#22d3ee] shrink-0" />
-              ) : (
-                <span className="text-xs mt-0.5 opacity-60 group-hover:opacity-100 shrink-0">⚖️</span>
-              )}
+              <Columns2
+                className={cn(
+                  'size-4 mt-0.5 shrink-0 transition-colors',
+                  view === 'map' && splitScreen ? 'text-cyan-400' : 'text-slate-400 group-hover:text-slate-200',
+                )}
+                aria-hidden
+              />
 
               <div className={cn('hidden min-w-0 flex-1 flex-col', !collapsed && 'md:flex')}>
                 <div className="flex items-center justify-between">
@@ -159,7 +162,7 @@ export function AppSidebar({
             title="Volver a la Portada (Inicio)"
           >
             <div className="flex items-center gap-2">
-              <span className="material-symbols-outlined text-base text-cyan-400">home</span>
+              <Home className="size-4 text-cyan-400 shrink-0" aria-hidden />
               {!collapsed && <span>Inicio (Landing)</span>}
             </div>
             {!collapsed && <span className="text-[10px] text-cyan-400">Web</span>}
@@ -174,10 +177,15 @@ export function AppSidebar({
             title="Salir al Portal de Acceso (Login)"
           >
             <div className="flex items-center gap-2">
-              <span className="material-symbols-outlined text-base text-slate-400">person</span>
+              <UserCircle2 className="size-4 text-slate-400 shrink-0" aria-hidden />
               {!collapsed && <span>Portal / Login</span>}
             </div>
-            {!collapsed && <span className="text-[10px] text-emerald-400">● Conectado</span>}
+            {!collapsed && (
+              <span className="flex items-center gap-1 text-[10px] text-emerald-400">
+                <span className="size-1.5 rounded-full bg-emerald-400" aria-hidden />
+                Conectado
+              </span>
+            )}
           </Link>
         </div>
 

@@ -270,7 +270,7 @@ export function CalendarView({ calendar, year, onYearChange, doy, onDoyChange, m
               </span>
             ))}
           </div>
-          <p className="w-full font-mono text-[11px] text-muted-foreground lg:w-auto" aria-live="polite">
+          <p className="h-4 w-64 shrink-0 truncate whitespace-nowrap text-right font-mono text-[11px] text-muted-foreground" aria-live="polite">
             {preview ? `${preview.iso} · HFII ${preview.hfii} · Z=${preview.zScore} · clic para seleccionar` : '\u00a0'}
           </p>
         </div>

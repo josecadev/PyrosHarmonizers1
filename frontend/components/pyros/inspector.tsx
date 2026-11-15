@@ -1,20 +1,103 @@
-import { Flame, ShieldAlert, X } from 'lucide-react'
+import { useState } from 'react'
+import { FileText, Flame, Radio, ShieldCheck, X, Zap } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { fmt, type CalendarDay, type Kpis, type Mode, type Region } from '@/lib/pyros/data'
+import type { Scene } from '@/lib/pyros/scene'
 import type { Selection } from './map-viewer'
 
 const fmtTime = (t: string) => `${t.slice(0, 2)}:${t.slice(2)}`
 
 export function Inspector({
   selection,
+  scene,
+  day,
+  region,
+  year,
+  kpis,
+  mode = 'dbscan',
   onSelect,
   onClose,
   onExportPdf,
 }: {
   selection: Selection
+  scene?: Scene
+  day?: CalendarDay
+  region?: Region
+  year?: number
+  kpis?: Kpis
+  mode?: Mode
   onSelect?: (s: Selection) => void
   onClose: () => void
   onExportPdf?: () => void
 }) {
+  const [scope, setScope] = useState<'day' | 'year'>('day')
+
+  // Dynamic calculations from active scene (day) and annual KPIs (region + year)
+  const dayRawPixels = scene ? scene.detections.length : day ? day.rawModisFoci + day.rawViirsFoci : 0
+  const dayModisPixels = scene ? scene.detections.filter((d) => d.sensor === 'MODIS').length : day ? day.rawModisFoci : 0
+  const dayViirsPixels = scene ? scene.detections.filter((d) => d.sensor === 'VIIRS').length : day ? day.rawViirsFoci : 0
+  const dayHarmonizedFronts = scene
+    ? mode === 'h3'
+      ? scene.activeHexes.length
+      : scene.events.length
+    : day
+      ? day.events
+      : 0
+
+  const yearRawPixels = kpis ? kpis.rawCount : dayRawPixels
+  const yearHarmonizedFronts = kpis ? (mode === 'h3' ? Math.round(kpis.events * 1.38) : kpis.events) : dayHarmonizedFronts
+
+  const activeRaw = scope === 'day' ? dayRawPixels : yearRawPixels
+  const activeHarmonized = scope === 'day' ? dayHarmonizedFronts : yearHarmonizedFronts
+
+  const reductionPct =
+    activeRaw > 0
+      ? Math.max(0, (1 - activeHarmonized / activeRaw) * 100)
+      : kpis
+        ? kpis.reduction * 100
+        : 0
+  const dupFactor =
+    activeHarmonized > 0
+      ? activeRaw / activeHarmonized
+      : kpis
+        ? kpis.dupFactor
+        : 1
+
+  // Area (ha) comparison: harmonized Convex Hull vs raw unharmonized pixel footprint sum
+  const dayHullAreaHa = scene
+    ? Math.round(
+        (mode === 'h3'
+          ? scene.activeHexes.reduce((s, h) => s + h.areaKm2, 0)
+          : scene.events.reduce((s, e) => s + e.areaKm2, 0)) * 100,
+      )
+    : 0
+  const dayRawAreaHa = scene
+    ? Math.round(scene.detections.reduce((s, d) => s + d.areaKm2, 0) * 100)
+    : 0
+
+  const yearHullAreaHa = kpis ? Math.round(kpis.hullAreaKm2 * 100) : dayHullAreaHa
+  const yearRawAreaHa = kpis ? Math.round(kpis.rawAreaKm2 * 100) : dayRawAreaHa
+
+  const activeHullAreaHa = scope === 'day' ? dayHullAreaHa : yearHullAreaHa
+  const activeRawAreaHa = scope === 'day' ? Math.max(dayRawAreaHa, dayHullAreaHa) : Math.max(yearRawAreaHa, yearHullAreaHa)
+
+  // Critical foci (high FRP or high confidence detections)
+  const dayCriticalFoci = scene
+    ? scene.detections.filter((d) => d.frp >= 30 || d.confidence === 'high' || Number(d.confidence) >= 80).length
+    : 0
+  const yearCriticalFoci = kpis ? Math.round(kpis.events * 0.22) : dayCriticalFoci
+  const activeCriticalFoci = scope === 'day' ? dayCriticalFoci : yearCriticalFoci
+
+  // Severity (HFII 0-100)
+  const activeHfii = scope === 'day' ? (day ? day.hfii : kpis ? kpis.hfii : 0) : kpis ? kpis.hfii : day ? day.hfii : 0
+  const severityRegime =
+    activeHfii >= 75
+      ? 'Fuego de Copa'
+      : activeHfii >= 50
+        ? 'Frente Activo'
+        : activeHfii >= 25
+          ? 'Sotobosque'
+          : 'Baja / Latente'
   let title: string
   let accent: string
   let rows: [string, string][]
@@ -108,56 +191,120 @@ export function Inspector({
       </header>
 
       <div className="scrollbar-thin flex-1 overflow-y-auto p-3 space-y-3">
-        {/* Panel 1: DATO CRUDO vs VERDAD ARMONIZADA */}
+        {/* Panel 1: DATO CRUDO vs VERDAD ARMONIZADA (Dinámico por Día/Fecha y Región/Año) */}
         <div className="bg-[#11182c] border border-slate-800 rounded-xl p-3 space-y-2.5">
-          <div className="flex items-center justify-between">
-            <h4 className="text-[10px] font-bold uppercase tracking-wider text-slate-300 font-mono">
-              Comparativa de Detección
-            </h4>
-            <span className="text-[9px] bg-cyan-950 text-cyan-300 px-1.5 py-0.5 rounded border border-cyan-800 font-mono">
-              NASA FIRMS
-            </span>
+          <div className="flex items-center justify-between gap-1.5">
+            <div className="flex flex-col">
+              <h4 className="text-[10px] font-bold uppercase tracking-wider text-slate-300 font-mono">
+                Comparativa de Detección
+              </h4>
+              <span className="text-[9px] font-mono text-cyan-400/90 truncate max-w-[175px]">
+                {region ? region.name.split(' (')[0] : 'Chiquitanía'} · {scope === 'day' && day ? day.iso : `Año ${year ?? 2024}`}
+              </span>
+            </div>
+            <div className="flex items-center rounded-md border border-slate-700/80 bg-slate-900/90 p-0.5 font-mono text-[9px]">
+              <button
+                type="button"
+                onClick={() => setScope('day')}
+                className={cn(
+                  'rounded px-1.5 py-0.5 transition-colors cursor-pointer',
+                  scope === 'day' ? 'bg-cyan-500/20 text-cyan-300 font-semibold' : 'text-slate-400 hover:text-slate-200',
+                )}
+                title="Ver comparativa del día seleccionado en el calendario"
+              >
+                Día {day ? day.iso.slice(5) : ''}
+              </button>
+              <button
+                type="button"
+                onClick={() => setScope('year')}
+                className={cn(
+                  'rounded px-1.5 py-0.5 transition-colors cursor-pointer',
+                  scope === 'year' ? 'bg-cyan-500/20 text-cyan-300 font-semibold' : 'text-slate-400 hover:text-slate-200',
+                )}
+                title="Ver acumulado anual de la región seleccionada"
+              >
+                Anual {year ?? ''}
+              </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-2">
             <div className="bg-rose-950/20 border border-rose-900/40 rounded-lg p-2 text-center">
-              <span className="text-[10px] text-rose-300 block mb-0.5">📡 Píxeles Crudos</span>
-              <div className="text-xl font-black text-rose-400 font-mono">14,500</div>
-              <span className="text-[9px] text-rose-300/80 bg-rose-900/40 px-1 rounded mt-0.5 inline-block">
-                Duplicados hasta 8x
+              <span className="text-[10px] text-rose-300 flex items-center justify-center gap-1 mb-0.5 font-medium">
+                <Radio className="size-3 text-rose-400 shrink-0" aria-hidden />
+                Píxeles Crudos
+              </span>
+              <div className="text-xl font-black text-rose-400 font-mono tabular-nums">
+                {fmt(activeRaw)}
+              </div>
+              <span className="text-[9px] text-rose-300/80 bg-rose-900/40 px-1.5 py-0.5 rounded mt-0.5 inline-block font-mono">
+                {scope === 'day'
+                  ? `${dayModisPixels}M + ${dayViirsPixels}V (${fmt(dupFactor, 1)}x)`
+                  : `Sobrecarga ${fmt(dupFactor, 1)}x`}
               </span>
             </div>
 
             <div className="bg-emerald-950/20 border border-emerald-900/40 rounded-lg p-2 text-center">
-              <span className="text-[10px] text-emerald-300 block mb-0.5">🛡️ Frentes Reales</span>
-              <div className="text-xl font-black text-emerald-400 font-mono">3,120</div>
-              <span className="text-[9px] text-emerald-300/80 bg-emerald-900/40 px-1 rounded mt-0.5 inline-block">
-                Fuegos Únicos Validados
+              <span className="text-[10px] text-emerald-300 flex items-center justify-center gap-1 mb-0.5 font-medium">
+                <ShieldCheck className="size-3 text-emerald-400 shrink-0" aria-hidden />
+                {mode === 'h3' ? 'Celdas H3 Activas' : 'Frentes Reales'}
+              </span>
+              <div className="text-xl font-black text-emerald-400 font-mono tabular-nums">
+                {fmt(activeHarmonized)}
+              </div>
+              <span className="text-[9px] text-emerald-300/80 bg-emerald-900/40 px-1.5 py-0.5 rounded mt-0.5 inline-block font-mono">
+                {scope === 'day' && kpis
+                  ? `Anual: ${fmt(yearHarmonizedFronts)} frentes`
+                  : 'Fuegos Únicos Validados'}
               </span>
             </div>
           </div>
 
-          <div className="bg-cyan-950/30 border border-cyan-700/30 rounded-lg p-1.5 text-center text-[11px] text-cyan-200 font-medium">
-            ⚡ <strong>-78.5%</strong> Reducción de Ruido • Despliegue Focalizado
+          <div className="bg-cyan-950/30 border border-cyan-700/30 rounded-lg p-1.5 flex items-center justify-center gap-1.5 text-center text-[11px] text-cyan-200 font-medium">
+            <Zap className="size-3.5 text-cyan-400 shrink-0" aria-hidden />
+            <span>
+              <strong>-{fmt(reductionPct, 1)}%</strong> Reducción de Ruido • Despliegue Focalizado
+            </span>
           </div>
         </div>
 
-        {/* Panel 2: IMPACTO Y KPIS CLAVE */}
+        {/* Panel 2: IMPACTO Y KPIS CLAVE (Dinámico por Día/Año y Región) */}
         <div className="grid grid-cols-3 gap-2">
           <div className="bg-[#11182c] border border-slate-800 rounded-lg p-2 text-center">
             <span className="text-[9px] text-slate-400 block font-mono">ÁREA REAL</span>
-            <span className="text-xs font-bold text-slate-100 font-mono">83,328 ha</span>
-            <span className="text-[8px] text-slate-500 block line-through">vs 310,000 ha</span>
+            <span className="text-xs font-bold text-slate-100 font-mono tabular-nums">
+              {fmt(activeHullAreaHa)} ha
+            </span>
+            <span className="text-[8px] text-slate-500 block line-through font-mono tabular-nums">
+              vs {fmt(activeRawAreaHa)} ha
+            </span>
           </div>
           <div className="bg-[#11182c] border border-slate-800 rounded-lg p-2 text-center">
             <span className="text-[9px] text-slate-400 block font-mono">FOCOS CRÍTICOS</span>
-            <span className="text-xs font-bold text-amber-400 font-mono">48</span>
-            <span className="text-[8px] text-amber-400/80 block">Prioridad Alta</span>
+            <span className="text-xs font-bold text-amber-400 font-mono tabular-nums">
+              {fmt(activeCriticalFoci)}
+            </span>
+            <span className="text-[8px] text-amber-400/80 block font-mono">
+              {activeCriticalFoci > 0 ? 'Prioridad Brigada' : 'Sin alerta crítica'}
+            </span>
           </div>
           <div className="bg-[#11182c] border border-slate-800 rounded-lg p-2 text-center">
             <span className="text-[9px] text-slate-400 block font-mono">SEVERIDAD</span>
-            <span className="text-xs font-bold text-rose-400 font-mono">85%</span>
-            <span className="text-[8px] text-rose-400/80 block">Fuego de Copa</span>
+            <span
+              className={cn(
+                'text-xs font-bold font-mono tabular-nums',
+                activeHfii >= 75
+                  ? 'text-rose-400'
+                  : activeHfii >= 50
+                    ? 'text-amber-400'
+                    : activeHfii >= 25
+                      ? 'text-yellow-300'
+                      : 'text-emerald-400',
+              )}
+            >
+              {activeHfii}%
+            </span>
+            <span className="text-[8px] text-slate-300 block font-mono">{severityRegime}</span>
           </div>
         </div>
 
@@ -233,7 +380,7 @@ export function Inspector({
           }}
           className="w-full bg-gradient-to-r from-rose-600 via-amber-600 to-rose-600 hover:from-rose-500 hover:to-amber-500 text-white font-bold py-2.5 px-4 rounded-xl shadow-lg shadow-rose-900/30 transition-all flex items-center justify-center gap-2 text-xs uppercase tracking-wider cursor-pointer active:scale-[0.99]"
         >
-          <span>🚨</span>
+          <FileText className="size-4 shrink-0" aria-hidden />
           <span>Despacho de Cuadrillas &amp; Generar Reporte PDF</span>
         </button>
       </div>

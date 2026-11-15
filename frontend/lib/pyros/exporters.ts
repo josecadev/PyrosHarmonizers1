@@ -722,15 +722,16 @@ export function exportPdf({ mode, region, year, kpis, calendar }: ExportCtx) {
   <!-- Screen Floating Top Bar -->
   <div class="no-print-bar">
     <div class="title">
-      <span>📄</span>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>
       <span>Vista Previa del Reporte Oficial — PyrosHarmonizer</span>
       <span class="hint">· Listo para imprimir o exportar a PDF (Ctrl + P)</span>
     </div>
     <div class="btn-group">
       <button class="btn-action" onclick="window.print()">
-        <span>🖨️</span> Imprimir / Guardar en PDF
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 9V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6"/><rect x="6" y="14" width="12" height="8" rx="1"/></svg>
+        Imprimir / Guardar en PDF
       </button>
-      <button class="btn-close" onclick="window.close()">✕ Cerrar</button>
+      <button class="btn-close" onclick="window.close()">Cerrar</button>
     </div>
   </div>
 

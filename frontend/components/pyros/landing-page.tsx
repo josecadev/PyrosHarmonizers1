@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { Rocket, Satellite } from 'lucide-react'
 
 export function LandingPage() {
   const router = useRouter()
@@ -106,8 +107,9 @@ export function LandingPage() {
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#00e5ff] opacity-75"></span>
                     <span className="relative inline-flex rounded-full h-2 w-2 bg-[#00daf3]"></span>
                   </span>
-                  <span className="font-mono text-[10px] tracking-widest text-[#00daf3] font-bold uppercase">
-                    🛰️ TELEDETECCIÓN SATELITAL • CIENCIA DE DATOS ESPACIALES
+                  <span className="font-mono text-[10px] tracking-widest text-[#00daf3] font-bold uppercase flex items-center gap-1.5">
+                    <Satellite className="size-3.5 text-[#00daf3]" aria-hidden />
+                    TELEDETECCIÓN SATELITAL • CIENCIA DE DATOS ESPACIALES
                   </span>
                   <span className="font-mono text-[10px] text-[#22ef7e] ml-2 px-1.5 py-0.5 rounded bg-[#0a0e17] border border-[#22ef7e]/20">
                     ORBIT 705 KM
@@ -781,7 +783,7 @@ export function LandingPage() {
 
                       {/* Discrepancy Annotation Box */}
                       <rect fill="#181b25" height="65" rx="8" stroke="#ff571a" strokeWidth="1" width="220" x="50" y="240" />
-                      <text fill="#ffb4ab" fontFamily="Space Grotesk, sans-serif" fontSize="11" fontWeight="bold" x="65" y="262">⚠️ RECUENTO DUPLICADO</text>
+                      <text fill="#ffb4ab" fontFamily="Space Grotesk, sans-serif" fontSize="11" fontWeight="bold" x="65" y="262">ALERTA: RECUENTO DUPLICADO</text>
                       <text fill="#bac9cc" fontFamily="JetBrains Mono" fontSize="10" x="65" y="282">342 Detecciones satelitales</text>
                       <text fill="#849396" fontFamily="JetBrains Mono" fontSize="9" x="65" y="296">Imposible asignar cuadrillas</text>
                     </svg>
@@ -1023,8 +1025,8 @@ export function LandingPage() {
                       onClick={() => handleQuickAccess('Jurado Evaluador NASA', 'jurado')}
                       className="flex items-center gap-2 px-6 py-3.5 rounded-xl bg-gradient-to-r from-[#00daf3] to-[#00e5ff] text-[#00363d] font-bold text-sm sm:text-base shadow-[0_0_20px_rgba(0,229,255,0.4)] hover:brightness-110 hover:scale-[1.02] transition-all cursor-pointer"
                     >
-                      <span className="material-symbols-outlined text-[20px]">rocket_launch</span>
-                      🚀 Ingresar como Jurado (1 Clic)
+                      <Rocket className="size-4 shrink-0" aria-hidden />
+                      Ingresar como Jurado (1 Clic)
                     </button>
                     <button
                       type="button"

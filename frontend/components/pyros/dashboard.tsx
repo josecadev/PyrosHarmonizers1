@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Activity } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { API_BASE_URL, checkApiHealth, type ApiStatus } from '@/lib/pyros/api'
 import { REGIONS, getCalendar, getHistory, getKpis, type Filters, type Mode } from '@/lib/pyros/data'
@@ -110,6 +111,7 @@ export function Dashboard({
           region={region}
           scene={scene}
           calendar={calendar}
+          day={day}
           splitScreen={splitScreen}
           onSplitScreenChange={setSplitScreen}
           locale={locale}
@@ -125,9 +127,11 @@ export function Dashboard({
         <section className="bg-gradient-to-r from-slate-900 via-sky-950/40 to-slate-900 border-b border-sky-900/30 px-4 py-1.5 flex items-center justify-between text-xs flex-shrink-0 z-20">
           <div className="flex items-center gap-2 text-slate-300 min-w-0">
             <span className="flex items-center justify-center w-5 h-5 rounded-full bg-cyan-500/20 text-cyan-400 font-bold text-xs shrink-0">
-              💡
+              <Activity className="size-3.5 text-cyan-400" aria-hidden />
             </span>
-            <span className="font-semibold text-cyan-300 font-mono shrink-0">DIAGNÓSTICO {year}:</span>
+            <span className="font-semibold text-cyan-300 font-mono shrink-0">
+              DIAGNÓSTICO {region.name.split(' (')[0].toUpperCase()} · {year}:
+            </span>
             <p className="truncate text-slate-300">
               De <strong className="text-rose-400 font-mono">{kpis.rawCount ? kpis.rawCount.toLocaleString() : '14,500'} anomalías crudas</strong>, PyrosHarmonizer validó{' '}
               <strong className="text-emerald-400 font-mono">
@@ -150,6 +154,7 @@ export function Dashboard({
                 region={region}
                 day={day}
                 year={year}
+                kpis={kpis}
                 filters={filters}
                 splitScreen={splitScreen}
                 onSplitScreenChange={setSplitScreen}

@@ -6,6 +6,7 @@ import {
   ChevronDown,
   Columns2,
   Download,
+  Droplets,
   Eye,
   FileCode2,
   FileJson,
@@ -16,6 +17,7 @@ import {
   Lock,
   ShieldAlert,
   UserCheck,
+  Wind,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ApiStatus } from '@/lib/pyros/api'
@@ -61,6 +63,7 @@ interface Props {
   region: Region
   scene: Scene
   calendar: CalendarDay[]
+  day?: CalendarDay
   splitScreen: boolean
   onSplitScreenChange: (v: boolean) => void
   locale: Locale
@@ -155,6 +158,7 @@ export function ControlHeader({
   region,
   scene,
   calendar,
+  day,
   splitScreen,
   onSplitScreenChange,
   locale,
@@ -176,8 +180,13 @@ export function ControlHeader({
   const ticker = buildTicker(mode, kpis, locale)
   const exportCtx = { mode, region, year, kpis, scene, calendar }
 
-  const riskIndex = kpis.hfii >= 0.65 ? 4 : kpis.hfii >= 0.45 ? 3 : kpis.hfii >= 0.25 ? 2 : 1
+  const activeHfii = day ? day.hfii : kpis.hfii
+  const riskIndex = activeHfii >= 75 ? 4 : activeHfii >= 50 ? 3 : activeHfii >= 25 ? 2 : 1
   const riskLabel = riskIndex === 4 ? 'Crítico (4/4)' : riskIndex === 3 ? 'Alto (3/4)' : riskIndex === 2 ? 'Alerta (2/4)' : 'Bajo (1/4)'
+  const windDirs = ['NO', 'NNO', 'NE', 'NNE', 'SO', 'SSO']
+  const windDir = windDirs[(region.seed + (day?.doy ?? 1)) % windDirs.length]
+  const windSpeedKmH = Math.round(14 + (activeHfii / 100) * 28 + ((region.seed + (day?.doy ?? 1)) % 6))
+  const relHumidityPct = Math.max(12, Math.min(78, Math.round(64 - (activeHfii / 100) * 48 - ((region.seed + (day?.doy ?? 1)) % 5))))
 
   useEffect(() => {
     if (!exportOpen) return
@@ -257,9 +266,15 @@ export function ControlHeader({
               <span className={cn('w-2.5 h-2 rounded-xs', riskIndex >= 4 ? 'bg-rose-500 shadow-xs shadow-rose-500' : 'bg-rose-500/20')} title="Crítico" />
             </div>
             <div className="h-3 w-px bg-slate-700 hidden sm:block" />
-            <div className="text-[10px] font-mono text-slate-300 hidden sm:flex items-center gap-1.5">
-              <span>💨 28 km/h NO</span>
-              <span>💧 18% HR</span>
+            <div className="text-[10px] font-mono text-slate-300 hidden sm:flex items-center gap-2">
+              <span className="flex items-center gap-1" title="Velocidad y dirección del viento estimada">
+                <Wind className="size-3.5 text-cyan-400 shrink-0" aria-hidden />
+                {windSpeedKmH} km/h {windDir}
+              </span>
+              <span className="flex items-center gap-1" title="Humedad relativa del aire">
+                <Droplets className="size-3.5 text-sky-400 shrink-0" aria-hidden />
+                {relHumidityPct}% HR
+              </span>
             </div>
           </div>
         </div>
