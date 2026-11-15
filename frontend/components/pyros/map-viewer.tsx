@@ -1,9 +1,9 @@
 'use client'
 
-import { useMemo, useRef, useState } from 'react'
-import { Columns2, Expand, Layers, Maximize2, Minus, Plus, ShieldAlert } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Columns2, Compass, Expand, Eye, Layers, Map as MapIcon, Maximize2, Minus, Plus, ShieldAlert } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { fmt, severity, type CalendarDay, type Filters, type Mode, type Region } from '@/lib/pyros/data'
+import { REGIONS, fmt, severity, type CalendarDay, type Filters, type Mode, type Region } from '@/lib/pyros/data'
 import {
   MAP_H_KM,
   MAP_W_KM,
@@ -19,6 +19,9 @@ import { Inspector } from './inspector'
 const VB_W = MAP_W_KM * PX_PER_KM
 const VB_H = MAP_H_KM * PX_PER_KM
 const GRAT_STEP = 0.025
+const TILE_ZOOM = 12
+
+export type BasemapStyle = 'satellite' | 'dark' | 'osm' | 'none'
 
 export type Selection =
   | { kind: 'det'; item: Detection }
@@ -42,7 +45,7 @@ type LayerKey = 'modis' | 'viirs' | 'hull' | 'hex' | 'static' | 'graticule'
 const LAYER_LABELS: { key: LayerKey; label: string; swatch: string }[] = [
   { key: 'modis', label: 'Píxel MODIS 1 km', swatch: 'border border-modis' },
   { key: 'viirs', label: 'Píxel VIIRS 375 m', swatch: 'bg-viirs' },
-  { key: 'hull', label: 'Envolvente ST-DBSCAN', swatch: 'border border-harmonized bg-harmonized/30' },
+  { key: 'hull', label: 'Envolvente ST-DBSCAN (Convex Hull)', swatch: 'border border-harmonized bg-harmonized/30' },
   { key: 'hex', label: 'Grilla Uber H3', swatch: 'bg-heat-3' },
   { key: 'static', label: 'Anomalías Estáticas (Gas/Ind.)', swatch: 'border border-amber-400 bg-amber-400/30' },
   { key: 'graticule', label: 'Retícula WGS84', swatch: 'border border-muted-foreground' },
@@ -57,10 +60,31 @@ function hexFill(density: number) {
   return HEX_FILLS[3]
 }
 
+/** Slippy map Web Mercator helpers for geographic tile alignment */
+function lonToTileX(lon: number, z: number): number {
+  return Math.floor(((lon + 180) / 360) * Math.pow(2, z))
+}
+
+function latToTileY(lat: number, z: number): number {
+  const rad = (lat * Math.PI) / 180
+  return Math.floor(((1 - Math.log(Math.tan(rad) + 1 / Math.cos(rad)) / Math.PI) / 2) * Math.pow(2, z))
+}
+
+function tileXToLon(x: number, z: number): number {
+  return (x / Math.pow(2, z)) * 360 - 180
+}
+
+function tileYToLat(y: number, z: number): number {
+  const n = Math.PI - (2 * Math.PI * y) / Math.pow(2, z)
+  return (180 / Math.PI) * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)))
+}
+
 export function MapViewer({ mode, scene, region, day, filters, splitScreen, onSplitScreenChange }: Props) {
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [splitPct, setSplitPct] = useState(50)
+  const [basemap, setBasemap] = useState<BasemapStyle>('satellite')
+  const [inspectorDismissed, setInspectorDismissed] = useState(false)
   const [layers, setLayers] = useState<Record<LayerKey, boolean>>({
     modis: true,
     viirs: true,
@@ -75,15 +99,89 @@ export function MapViewer({ mode, scene, region, day, filters, splitScreen, onSp
   const containerRef = useRef<HTMLDivElement>(null)
   const svgRef = useRef<SVGSVGElement>(null)
   const drag = useRef<{ x: number; y: number; px: number; py: number; moved: boolean } | null>(null)
-  const sceneRef = useRef(scene)
 
-  if (sceneRef.current !== scene) {
-    sceneRef.current = scene
-    if (selection) setSelection(null)
-  }
+  const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN
+
+  // Automatically select a representative element when scene or mode changes so the Inspector is immediately visible
+  useEffect(() => {
+    if (inspectorDismissed) return
+    if (mode === 'dbscan' && scene.events.length > 0) {
+      setSelection({ kind: 'event', item: scene.events[0] })
+    } else if (mode === 'h3' && scene.activeHexes.length > 0) {
+      setSelection({ kind: 'hex', item: scene.activeHexes[0] })
+    } else if (scene.detections.length > 0) {
+      setSelection({ kind: 'det', item: scene.detections[0] })
+    } else {
+      setSelection(null)
+    }
+  }, [scene, mode, inspectorDismissed])
 
   const kmPerDegLon = 111.32 * Math.cos((region.lat * Math.PI) / 180)
   const { latTop, lonLeft, latBottom, lonRight } = scene.bounds
+
+  // Compute Web Mercator map tiles covering the current region bounds
+  const mapTiles = useMemo(() => {
+    if (basemap === 'none') return []
+    const xMin = Math.max(0, lonToTileX(lonLeft, TILE_ZOOM) - 1)
+    const xMax = lonToTileX(lonRight, TILE_ZOOM) + 1
+    const yMin = Math.max(0, latToTileY(latTop, TILE_ZOOM) - 1)
+    const yMax = latToTileY(latBottom, TILE_ZOOM) + 1
+
+    const tiles: {
+      key: string
+      x: number
+      y: number
+      w: number
+      h: number
+      url: string
+      labelUrl?: string
+    }[] = []
+
+    for (let tx = xMin; tx <= xMax; tx++) {
+      for (let ty = yMin; ty <= yMax; ty++) {
+        const wLon = tileXToLon(tx, TILE_ZOOM)
+        const eLon = tileXToLon(tx + 1, TILE_ZOOM)
+        const nLat = tileYToLat(ty, TILE_ZOOM)
+        const sLat = tileYToLat(ty + 1, TILE_ZOOM)
+
+        const svgX = ((wLon - lonLeft) / (lonRight - lonLeft)) * VB_W
+        const svgX2 = ((eLon - lonLeft) / (lonRight - lonLeft)) * VB_W
+        const svgY = ((latTop - nLat) / (latTop - latBottom)) * VB_H
+        const svgY2 = ((latTop - sLat) / (latTop - latBottom)) * VB_H
+
+        let url = ''
+        let labelUrl: string | undefined
+
+        if (basemap === 'satellite') {
+          if (mapboxToken) {
+            url = `https://api.mapbox.com/styles/v1/mapbox/satellite-streets-v12/tiles/256/${TILE_ZOOM}/${tx}/${ty}@2x?access_token=${mapboxToken}`
+          } else {
+            url = `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${TILE_ZOOM}/${ty}/${tx}`
+            labelUrl = `https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/${TILE_ZOOM}/${ty}/${tx}`
+          }
+        } else if (basemap === 'dark') {
+          if (mapboxToken) {
+            url = `https://api.mapbox.com/styles/v1/mapbox/dark-v11/tiles/256/${TILE_ZOOM}/${tx}/${ty}@2x?access_token=${mapboxToken}`
+          } else {
+            url = `https://a.basemaps.cartocdn.com/dark_all/${TILE_ZOOM}/${tx}/${ty}@2x.png`
+          }
+        } else {
+          url = `https://tile.openstreetmap.org/${TILE_ZOOM}/${tx}/${ty}.png`
+        }
+
+        tiles.push({
+          key: `${TILE_ZOOM}-${tx}-${ty}`,
+          x: svgX,
+          y: svgY,
+          w: svgX2 - svgX + 0.8,
+          h: svgY2 - svgY + 0.8,
+          url,
+          labelUrl,
+        })
+      }
+    }
+    return tiles
+  }, [basemap, lonLeft, lonRight, latTop, latBottom, mapboxToken])
 
   const graticule = useMemo(() => {
     const lats: { v: number; y: number }[] = []
@@ -150,8 +248,10 @@ export function MapViewer({ mode, scene, region, day, filters, splitScreen, onSp
       return
     }
   }
-  const select = (s: Selection) => () => {
+  const select = (s: Selection) => (e?: React.MouseEvent) => {
+    e?.stopPropagation()
     if (drag.current?.moved) return
+    setInspectorDismissed(false)
     setSelection(s)
   }
   const handleHover = (s: Selection) => (e: React.MouseEvent) => {
@@ -164,8 +264,8 @@ export function MapViewer({ mode, scene, region, day, filters, splitScreen, onSp
   const viirsDet = scene.detections.filter((d) => d.sensor === 'VIIRS')
 
   const op = {
-    modis: !layers.modis ? 0 : mode === 'raw' ? 1 : mode === 'dbscan' ? 0.35 : 0.15,
-    viirs: !layers.viirs ? 0 : mode === 'raw' ? 1 : mode === 'dbscan' ? 0.4 : 0.2,
+    modis: !layers.modis ? 0 : mode === 'raw' ? 1 : mode === 'dbscan' ? 0.45 : 0.18,
+    viirs: !layers.viirs ? 0 : mode === 'raw' ? 1 : mode === 'dbscan' ? 0.55 : 0.22,
     hull: layers.hull && mode === 'dbscan' ? 1 : 0,
     hex: layers.hex && mode === 'h3' ? 1 : 0,
   }
@@ -202,7 +302,7 @@ export function MapViewer({ mode, scene, region, day, filters, splitScreen, onSp
         }}
         onWheel={(e) => zoomBy(e.deltaY < 0 ? 1.15 : 1 / 1.15)}
         role="application"
-        aria-label={`Visor de huella de píxel para ${region.name}, ${day.iso}`}
+        aria-label={`Visor geoespacial para ${region.name}, ${day.iso}`}
       >
         <defs>
           <clipPath id="split-left">
@@ -211,22 +311,101 @@ export function MapViewer({ mode, scene, region, day, filters, splitScreen, onSp
           <clipPath id="split-right">
             <rect x={splitX} y={0} width={VB_W - splitX} height={VB_H} />
           </clipPath>
+          <clipPath id="viewport-clip">
+            <rect x={0} y={0} width={VB_W} height={VB_H} />
+          </clipPath>
         </defs>
 
-        <rect width={VB_W} height={VB_H} fill="var(--canvas)" onClick={() => setSelection(null)} />
+        <rect width={VB_W} height={VB_H} fill="var(--canvas)" />
 
-        {/* Graticule shared across full viewport */}
-        <g transform={`translate(${pan.x} ${pan.y}) scale(${zoom})`}>
-          {layers.graticule && (
-            <g aria-hidden>
-              {graticule.lats.map((l) => (
-                <line key={`la${l.v}`} x1={0} x2={VB_W} y1={l.y} y2={l.y} stroke="var(--border)" strokeWidth={1} vectorEffect="non-scaling-stroke" />
-              ))}
-              {graticule.lons.map((l) => (
-                <line key={`lo${l.v}`} y1={0} y2={VB_H} x1={l.x} x2={l.x} stroke="var(--border)" strokeWidth={1} vectorEffect="non-scaling-stroke" />
-              ))}
+        {/* Real Geographic & Satellite Basemap Tiles + Graticule */}
+        <g clipPath="url(#viewport-clip)">
+          <g transform={`translate(${pan.x} ${pan.y}) scale(${zoom})`}>
+            {basemap !== 'none' && (
+              <g aria-label="Mapa base geográfico real de Santa Cruz / Chiquitanía">
+                {mapTiles.map((t) => (
+                  <g key={t.key}>
+                    <image
+                      href={t.url}
+                      x={t.x}
+                      y={t.y}
+                      width={t.w}
+                      height={t.h}
+                      preserveAspectRatio="none"
+                      opacity={basemap === 'satellite' ? 0.72 : basemap === 'dark' ? 0.92 : 0.55}
+                    />
+                    {t.labelUrl && (
+                      <image
+                        href={t.labelUrl}
+                        x={t.x}
+                        y={t.y}
+                        width={t.w}
+                        height={t.h}
+                        preserveAspectRatio="none"
+                        opacity={0.95}
+                      />
+                    )}
+                  </g>
+                ))}
+                {/* Dark contrast vignette so thermal hotspots pop clearly over satellite imagery */}
+                <rect
+                  x={-VB_W}
+                  y={-VB_H}
+                  width={VB_W * 3}
+                  height={VB_H * 3}
+                  fill="#05080d"
+                  fillOpacity={basemap === 'satellite' ? 0.28 : basemap === 'osm' ? 0.45 : 0.12}
+                  pointerEvents="none"
+                />
+              </g>
+            )}
+
+            {layers.graticule && (
+              <g aria-hidden pointerEvents="none">
+                {graticule.lats.map((l) => (
+                  <line
+                    key={`la${l.v}`}
+                    x1={0}
+                    x2={VB_W}
+                    y1={l.y}
+                    y2={l.y}
+                    stroke="rgba(255,255,255,0.16)"
+                    strokeDasharray="3 3"
+                    strokeWidth={1}
+                    vectorEffect="non-scaling-stroke"
+                  />
+                ))}
+                {graticule.lons.map((l) => (
+                  <line
+                    key={`lo${l.v}`}
+                    y1={0}
+                    y2={VB_H}
+                    x1={l.x}
+                    x2={l.x}
+                    stroke="rgba(255,255,255,0.16)"
+                    strokeDasharray="3 3"
+                    strokeWidth={1}
+                    vectorEffect="non-scaling-stroke"
+                  />
+                ))}
+              </g>
+            )}
+
+            {/* Place Name Watermark at Region Center */}
+            <g transform={`translate(${VB_W / 2} ${VB_H / 2})`} pointerEvents="none">
+              <circle r={4} fill="none" stroke="rgba(0, 229, 255, 0.5)" strokeWidth={1.2} vectorEffect="non-scaling-stroke" />
+              <text
+                y={-8}
+                textAnchor="middle"
+                fontSize={11}
+                className="font-mono font-semibold uppercase tracking-widest"
+                fill="rgba(255,255,255,0.75)"
+                style={{ textShadow: '0 1px 4px rgba(0,0,0,0.95)' }}
+              >
+                {region.name} ({Math.abs(region.lat).toFixed(2)}°S, {Math.abs(region.lon).toFixed(2)}°W)
+              </text>
             </g>
-          )}
+          </g>
         </g>
 
         {!splitScreen ? (
@@ -243,10 +422,10 @@ export function MapViewer({ mode, scene, region, day, filters, splitScreen, onSp
                       key={h.h3}
                       points={h.points.map((p) => p.join(',')).join(' ')}
                       fill={h.count ? hexFill(h.density) : 'transparent'}
-                      fillOpacity={h.count ? 0.85 : 0}
-                      stroke={hoveredHex ? '#00e5ff' : h.count ? 'var(--harmonized)' : 'var(--border)'}
-                      strokeOpacity={h.count ? (hoveredHex || selectedHex ? 1 : 0.55) : 0.7}
-                      strokeWidth={hoveredHex || selectedHex ? 2.2 : 1}
+                      fillOpacity={h.count ? 0.82 : 0}
+                      stroke={hoveredHex || selectedHex ? '#00e5ff' : h.count ? 'var(--harmonized)' : 'rgba(255,255,255,0.12)'}
+                      strokeOpacity={h.count ? (hoveredHex || selectedHex ? 1 : 0.75) : 0.45}
+                      strokeWidth={hoveredHex || selectedHex ? 2.4 : 1}
                       vectorEffect="non-scaling-stroke"
                       className={h.count ? 'cursor-pointer' : undefined}
                       onMouseEnter={h.count ? handleHover({ kind: 'hex', item: h }) : undefined}
@@ -268,9 +447,9 @@ export function MapViewer({ mode, scene, region, day, filters, splitScreen, onSp
                     width={d.scan}
                     height={d.track}
                     fill="var(--modis)"
-                    fillOpacity={isSelected('det', d.id) ? 0.35 : 0.08}
-                    stroke="var(--modis)"
-                    strokeWidth={isSelected('det', d.id) ? 2.5 : 1.25}
+                    fillOpacity={isSelected('det', d.id) ? 0.45 : 0.16}
+                    stroke={isSelected('det', d.id) ? '#00e5ff' : 'var(--modis)'}
+                    strokeWidth={isSelected('det', d.id) ? 2.6 : 1.4}
                     vectorEffect="non-scaling-stroke"
                     className="cursor-pointer"
                     onMouseEnter={handleHover({ kind: 'det', item: d })}
@@ -291,9 +470,9 @@ export function MapViewer({ mode, scene, region, day, filters, splitScreen, onSp
                     width={d.scan}
                     height={d.track}
                     fill="var(--viirs)"
-                    fillOpacity={isSelected('det', d.id) ? 0.9 : 0.45}
-                    stroke="var(--viirs)"
-                    strokeWidth={isSelected('det', d.id) ? 2 : 0.75}
+                    fillOpacity={isSelected('det', d.id) ? 0.92 : 0.62}
+                    stroke={isSelected('det', d.id) ? '#00e5ff' : 'var(--viirs)'}
+                    strokeWidth={isSelected('det', d.id) ? 2.2 : 1}
                     vectorEffect="non-scaling-stroke"
                     className="cursor-pointer"
                     onMouseEnter={handleHover({ kind: 'det', item: d })}
@@ -304,18 +483,32 @@ export function MapViewer({ mode, scene, region, day, filters, splitScreen, onSp
                 ))}
               </g>
 
-              {/* ST-DBSCAN ConvexHull Layer */}
-              <g style={{ opacity: op.hull, transition: 'opacity 500ms ease' }} pointerEvents={op.hull ? 'auto' : 'none'}>
+              {/* ST-DBSCAN ConvexHull Layer (Green Harmonized Perimeter + 750m Search Radius) */}
+              <g style={{ opacity: op.hull, transition: 'opacity 400ms ease' }} pointerEvents={op.hull ? 'auto' : 'none'}>
                 {scene.events.map((e) => {
                   const selEvent = isSelected('event', e.id)
                   return (
                     <g key={e.id}>
+                      {/* ST-DBSCAN eps=750m search radius halo */}
+                      <circle
+                        cx={e.centroid[0]}
+                        cy={e.centroid[1]}
+                        r={0.95}
+                        fill="none"
+                        stroke={selEvent ? '#00e5ff' : 'var(--harmonized)'}
+                        strokeOpacity={selEvent ? 0.65 : 0.35}
+                        strokeDasharray="4 3"
+                        strokeWidth={1.2}
+                        vectorEffect="non-scaling-stroke"
+                        pointerEvents="none"
+                      />
+                      {/* Convex Hull Polygon */}
                       <polygon
                         points={e.hull.map((p) => p.join(',')).join(' ')}
                         fill="var(--harmonized)"
-                        fillOpacity={selEvent ? 0.38 : 0.2}
+                        fillOpacity={selEvent ? 0.45 : 0.3}
                         stroke={selEvent ? '#00e5ff' : 'var(--harmonized)'}
-                        strokeWidth={selEvent ? 2.5 : 1.6}
+                        strokeWidth={selEvent ? 3 : 2.2}
                         strokeLinejoin="round"
                         vectorEffect="non-scaling-stroke"
                         className="cursor-pointer"
@@ -324,7 +517,26 @@ export function MapViewer({ mode, scene, region, day, filters, splitScreen, onSp
                         onMouseLeave={() => setHovered(null)}
                         onClick={select({ kind: 'event', item: e })}
                       />
-                      <circle cx={e.centroid[0]} cy={e.centroid[1]} r={0.06} fill="var(--foreground)" pointerEvents="none" />
+                      <circle
+                        cx={e.centroid[0]}
+                        cy={e.centroid[1]}
+                        r={0.075}
+                        fill={selEvent ? '#00e5ff' : 'var(--foreground)'}
+                        pointerEvents="none"
+                      />
+                      {/* Event Label Tag directly over the polygon */}
+                      <text
+                        x={e.centroid[0]}
+                        y={e.centroid[1] - 0.22}
+                        textAnchor="middle"
+                        fontSize={0.18}
+                        className="font-mono font-semibold"
+                        fill={selEvent ? '#00e5ff' : '#a7f3d0'}
+                        style={{ textShadow: '0 1px 3px rgba(0,0,0,0.95)' }}
+                        pointerEvents="none"
+                      >
+                        {e.eventCode} ({e.detections} focos)
+                      </text>
                       {/* Highlight member centroids when this cluster is selected (US-07) */}
                       {selEvent &&
                         e.members.map((m) => (
@@ -332,14 +544,15 @@ export function MapViewer({ mode, scene, region, day, filters, splitScreen, onSp
                             key={`mem-${m.id}`}
                             cx={m.x}
                             cy={m.y}
-                            r={m.sensor === 'MODIS' ? 0.09 : 0.055}
+                            r={m.sensor === 'MODIS' ? 0.095 : 0.06}
                             fill={m.sensor === 'MODIS' ? 'var(--modis)' : 'var(--viirs)'}
                             stroke="#ffffff"
-                            strokeWidth={1}
+                            strokeWidth={1.2}
                             vectorEffect="non-scaling-stroke"
                             className="cursor-pointer"
                             onClick={(ev) => {
                               ev.stopPropagation()
+                              setInspectorDismissed(false)
                               setSelection({ kind: 'det', item: m })
                             }}
                           />
@@ -396,9 +609,9 @@ export function MapViewer({ mode, scene, region, day, filters, splitScreen, onSp
                       width={d.scan}
                       height={d.track}
                       fill="var(--modis)"
-                      fillOpacity={0.12}
+                      fillOpacity={0.18}
                       stroke="var(--modis)"
-                      strokeWidth={1.3}
+                      strokeWidth={1.4}
                       vectorEffect="non-scaling-stroke"
                       className="cursor-pointer"
                       onMouseEnter={handleHover({ kind: 'det', item: d })}
@@ -413,9 +626,9 @@ export function MapViewer({ mode, scene, region, day, filters, splitScreen, onSp
                       width={d.scan}
                       height={d.track}
                       fill="var(--viirs)"
-                      fillOpacity={0.55}
+                      fillOpacity={0.62}
                       stroke="var(--viirs)"
-                      strokeWidth={0.85}
+                      strokeWidth={0.95}
                       vectorEffect="non-scaling-stroke"
                       className="cursor-pointer"
                       onMouseEnter={handleHover({ kind: 'det', item: d })}
@@ -457,7 +670,7 @@ export function MapViewer({ mode, scene, region, day, filters, splitScreen, onSp
                           height={d.track}
                           fill="none"
                           stroke="var(--modis)"
-                          strokeOpacity={0.22}
+                          strokeOpacity={0.25}
                           strokeWidth={1}
                           vectorEffect="non-scaling-stroke"
                         />
@@ -467,16 +680,16 @@ export function MapViewer({ mode, scene, region, day, filters, splitScreen, onSp
                           <polygon
                             points={e.hull.map((p) => p.join(',')).join(' ')}
                             fill="var(--harmonized)"
-                            fillOpacity={0.28}
+                            fillOpacity={0.35}
                             stroke="var(--harmonized)"
-                            strokeWidth={2}
+                            strokeWidth={2.2}
                             strokeLinejoin="round"
                             vectorEffect="non-scaling-stroke"
                             className="cursor-pointer"
                             onMouseEnter={handleHover({ kind: 'event', item: e })}
                             onClick={select({ kind: 'event', item: e })}
                           />
-                          <circle cx={e.centroid[0]} cy={e.centroid[1]} r={0.065} fill="var(--foreground)" pointerEvents="none" />
+                          <circle cx={e.centroid[0]} cy={e.centroid[1]} r={0.07} fill="var(--foreground)" pointerEvents="none" />
                         </g>
                       ))}
                     </>
@@ -499,11 +712,11 @@ export function MapViewer({ mode, scene, region, day, filters, splitScreen, onSp
         )}
 
         {layers.graticule && (
-          <g aria-hidden className="font-mono" fontSize={10} fill="var(--muted-foreground)">
+          <g aria-hidden className="font-mono" fontSize={10} fill="rgba(255,255,255,0.75)">
             {graticule.lats.map((l) => {
               const y = pan.y + l.y * zoom
               return y > 12 && y < VB_H - 30 ? (
-                <text key={`tla${l.v}`} x={6} y={y - 3}>
+                <text key={`tla${l.v}`} x={6} y={y - 3} style={{ textShadow: '0 1px 2px #000' }}>
                   {Math.abs(l.v).toFixed(3)}°S
                 </text>
               ) : null
@@ -511,7 +724,7 @@ export function MapViewer({ mode, scene, region, day, filters, splitScreen, onSp
             {graticule.lons.map((l) => {
               const x = pan.x + l.x * zoom
               return x > 60 && x < VB_W - 40 ? (
-                <text key={`tlo${l.v}`} x={x + 3} y={VB_H - 6}>
+                <text key={`tlo${l.v}`} x={x + 3} y={VB_H - 6} style={{ textShadow: '0 1px 2px #000' }}>
                   {Math.abs(l.v).toFixed(3)}°W
                 </text>
               ) : null
@@ -533,7 +746,7 @@ export function MapViewer({ mode, scene, region, day, filters, splitScreen, onSp
       {/* Split-Screen Interactive Slider Overlay & Badges */}
       {splitScreen && (
         <>
-          <div className="pointer-events-none absolute inset-x-0 top-14 z-10 flex justify-between px-3">
+          <div className="pointer-events-none absolute inset-x-0 top-16 z-10 flex justify-between px-3">
             <div className="rounded-md border border-viirs/50 bg-card/95 px-2.5 py-1.5 font-mono text-[11px] shadow-lg backdrop-blur-md">
               <span className="font-semibold text-viirs">ANTES (CRUDO):</span>{' '}
               <span>{scene.detections.length} focos</span>{' '}
@@ -573,7 +786,7 @@ export function MapViewer({ mode, scene, region, day, filters, splitScreen, onSp
             left: Math.min(hovered.x + 14, (containerRef.current?.clientWidth ?? 600) - 230),
             top: Math.max(12, hovered.y - 10),
           }}
-          className="pointer-events-none absolute z-30 w-56 rounded-md border border-cyan-400/50 bg-card/95 p-2.5 font-mono text-[10.5px] shadow-2xl backdrop-blur-md"
+          className="pointer-events-none absolute z-30 w-60 rounded-md border border-cyan-400/50 bg-card/95 p-2.5 font-mono text-[10.5px] shadow-2xl backdrop-blur-md"
         >
           {hovered.item.kind === 'hex' && (
             <>
@@ -590,12 +803,12 @@ export function MapViewer({ mode, scene, region, day, filters, splitScreen, onSp
           {hovered.item.kind === 'event' && (
             <>
               <p className="font-semibold text-harmonized">{hovered.item.item.eventCode}</p>
-              <p className="mt-0.5 text-foreground">HFII: {hovered.item.item.frpCal.toFixed(1)} MW</p>
+              <p className="mt-0.5 text-foreground">HFII Calibrado: {hovered.item.item.frpCal.toFixed(1)} MW</p>
               <p className="text-muted-foreground">
-                MODIS: {hovered.item.item.modis} · VIIRS: {hovered.item.item.viirs}
+                MODIS: {hovered.item.item.modis} · VIIRS: {hovered.item.item.viirs} (Total: {hovered.item.item.detections})
               </p>
               <p className="text-muted-foreground">
-                Área: {(hovered.item.item.areaKm2 * 100).toFixed(1)} ha · Δt {hovered.item.item.deltaT.toFixed(1)} h
+                Área ConvexHull: {(hovered.item.item.areaKm2 * 100).toFixed(1)} ha · Δt {hovered.item.item.deltaT.toFixed(1)} h
               </p>
             </>
           )}
@@ -626,10 +839,19 @@ export function MapViewer({ mode, scene, region, day, filters, splitScreen, onSp
         </div>
       )}
 
-      {/* Top-Left Status Overlay */}
+      {/* Top-Left Status Overlay + Santa Cruz / Chiquitanía Locator */}
       <div className="pointer-events-none absolute left-3 top-3 flex flex-col gap-2">
-        <div className="pointer-events-auto rounded-md border border-border bg-card/90 px-3 py-2 backdrop-blur-md">
-          <p className="font-mono text-[11px] text-muted-foreground">
+        <div className="pointer-events-auto rounded-md border border-border bg-card/90 px-3 py-2 shadow-lg backdrop-blur-md">
+          <div className="flex items-center justify-between gap-3">
+            <p className="font-mono text-[11px] font-medium text-cyan-400">
+              <Compass className="mr-1 inline size-3" aria-hidden />
+              {region.name} · Bolivia
+            </p>
+            <span className="rounded bg-background/80 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+              {Math.abs(region.lat).toFixed(2)}°S, {Math.abs(region.lon).toFixed(2)}°W
+            </span>
+          </div>
+          <p className="mt-0.5 font-mono text-[11px] text-muted-foreground">
             {day.iso} UTC · DOY {String(day.doy).padStart(3, '0')} · {region.category}
           </p>
           <p className="mt-0.5 flex items-center gap-3 text-xs">
@@ -643,8 +865,10 @@ export function MapViewer({ mode, scene, region, day, filters, splitScreen, onSp
           <p className="mt-1 flex flex-wrap gap-3 font-mono text-[11px]">
             <span className="text-modis">{modisDet.length} MODIS</span>
             <span className="text-viirs">{viirsDet.length} VIIRS</span>
-            <span className="text-harmonized">
-              {mode === 'h3' ? `${scene.activeHexes.length} celdas H3 (res.${filters.h3Res})` : `${scene.events.length} eventos`}
+            <span className="font-semibold text-harmonized">
+              {mode === 'h3'
+                ? `${scene.activeHexes.length} celdas H3 (res.${filters.h3Res})`
+                : `${scene.events.length} polígonos ST-DBSCAN`}
             </span>
             {filters.staticMask && (
               <span className="flex items-center gap-1 text-amber-400" title="Anomalías térmicas industriales excluidas">
@@ -654,6 +878,43 @@ export function MapViewer({ mode, scene, region, day, filters, splitScreen, onSp
             )}
           </p>
         </div>
+
+        {/* Regional Mini-Map of Santa Cruz / Chiquitanía showing where we are */}
+        <div className="pointer-events-auto hidden w-56 rounded-md border border-border bg-card/90 p-2 shadow-lg backdrop-blur-md xl:block">
+          <div className="mb-1 flex items-center justify-between font-mono text-[9.5px] text-muted-foreground">
+            <span>UBICACIÓN EN SANTA CRUZ</span>
+            <span className="text-cyan-400">Dpto. BO-S</span>
+          </div>
+          <svg viewBox="0 0 180 110" className="h-24 w-full rounded border border-border/60 bg-[#071018]">
+            {/* Santa Cruz Department & Chiquitanía simplified polygon */}
+            <polygon
+              points="18,16 142,12 166,42 162,92 88,98 22,88 12,52"
+              fill="rgba(16, 185, 129, 0.09)"
+              stroke="rgba(16, 185, 129, 0.35)"
+              strokeWidth={1}
+            />
+            {REGIONS.map((r) => {
+              // Map lon [-64.5, -57.5] -> [10, 170], lat [-13.5, -20.5] -> [10, 100]
+              const rx = ((r.lon - -64.5) / 7.0) * 160 + 10
+              const ry = ((-13.5 - r.lat) / 7.0) * 90 + 10
+              const active = r.id === region.id
+              return (
+                <g key={r.id}>
+                  {active && (
+                    <>
+                      <circle cx={rx} cy={ry} r={9} fill="rgba(0, 229, 255, 0.2)" stroke="#00e5ff" strokeWidth={1} />
+                      <text x={rx} y={Math.max(12, ry - 11)} textAnchor="middle" fontSize={7.5} fill="#00e5ff" className="font-mono font-bold">
+                        {r.name.split(' ')[0]}
+                      </text>
+                    </>
+                  )}
+                  <circle cx={rx} cy={ry} r={active ? 3.2 : 2} fill={active ? '#00e5ff' : 'rgba(255,255,255,0.4)'} />
+                </g>
+              )
+            })}
+          </svg>
+        </div>
+
         {scene.detections.length === 0 && (
           <p className="pointer-events-auto rounded-md border border-border bg-card/90 px-3 py-2 text-xs text-muted-foreground backdrop-blur-md">
             Sin detecciones para este día y filtros. Selecciona un día de julio–octubre en el calendario.
@@ -693,8 +954,33 @@ export function MapViewer({ mode, scene, region, day, filters, splitScreen, onSp
         </span>
       </div>
 
-      {/* Bottom Toolbar: Layers + Split-Screen Toggle */}
-      <div className="absolute bottom-3 left-16 flex items-center gap-2">
+      {/* Bottom Toolbar: Basemap Selector + Layers + Split-Screen + Inspector Button */}
+      <div className="absolute bottom-3 left-16 flex flex-wrap items-center gap-2">
+        {/* Basemap Selector (Satellite / Dark Carto / OSM / Schematic) */}
+        <div className="flex items-center overflow-hidden rounded-md border border-border bg-card/90 p-0.5 text-xs backdrop-blur-md">
+          <MapIcon className="mx-1.5 size-3.5 text-cyan-400" aria-hidden />
+          {(
+            [
+              { id: 'satellite', label: 'Satélite Real' },
+              { id: 'dark', label: 'Mapa Oscuro' },
+              { id: 'osm', label: 'Calles/Ríos' },
+              { id: 'none', label: 'Retícula' },
+            ] as { id: BasemapStyle; label: string }[]
+          ).map((b) => (
+            <button
+              key={b.id}
+              type="button"
+              onClick={() => setBasemap(b.id)}
+              className={cn(
+                'rounded px-2 py-1 font-mono text-[11px] transition-colors',
+                basemap === b.id ? 'bg-cyan-500/20 font-medium text-cyan-300' : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {b.label}
+            </button>
+          ))}
+        </div>
+
         <div className="relative">
           <button
             type="button"
@@ -739,6 +1025,22 @@ export function MapViewer({ mode, scene, region, day, filters, splitScreen, onSp
           <Columns2 className="size-3.5" aria-hidden />
           {splitScreen ? 'Split-Screen Activo' : 'Comparar (Split-Screen)'}
         </button>
+
+        {!selection && (
+          <button
+            type="button"
+            onClick={() => {
+              setInspectorDismissed(false)
+              if (mode === 'dbscan' && scene.events[0]) setSelection({ kind: 'event', item: scene.events[0] })
+              else if (mode === 'h3' && scene.activeHexes[0]) setSelection({ kind: 'hex', item: scene.activeHexes[0] })
+              else if (scene.detections[0]) setSelection({ kind: 'det', item: scene.detections[0] })
+            }}
+            className="flex items-center gap-1.5 rounded-md border border-cyan-400/50 bg-cyan-500/10 px-2.5 py-1.5 font-mono text-[11px] text-cyan-300 backdrop-blur-md hover:bg-cyan-500/20"
+          >
+            <Eye className="size-3.5" aria-hidden />
+            Abrir Inspector de Trazabilidad
+          </button>
+        )}
       </div>
 
       {/* Top-Right Legend */}
@@ -753,7 +1055,7 @@ export function MapViewer({ mode, scene, region, day, filters, splitScreen, onSp
         </span>
         <span className={cn('flex items-center gap-1.5 transition-opacity', mode === 'raw' && !splitScreen && 'opacity-40')}>
           <span className="size-2.5 rounded-sm border border-harmonized bg-harmonized/30" aria-hidden />
-          {mode === 'h3' ? `H3 Res ${filters.h3Res}` : 'Armonizado'}
+          {mode === 'h3' ? `H3 Res ${filters.h3Res}` : 'ST-DBSCAN ConvexHull'}
         </span>
         <span className="flex items-center gap-1.5">
           <span className="size-2 rotate-45 bg-amber-400" aria-hidden />
@@ -765,7 +1067,10 @@ export function MapViewer({ mode, scene, region, day, filters, splitScreen, onSp
         <Inspector
           selection={selection}
           onSelect={(s) => setSelection(s)}
-          onClose={() => setSelection(null)}
+          onClose={() => {
+            setInspectorDismissed(true)
+            setSelection(null)
+          }}
         />
       )}
     </div>

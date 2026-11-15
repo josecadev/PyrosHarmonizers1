@@ -23,7 +23,7 @@ interface DashboardProps {
 export function Dashboard({
   initialView = 'map',
   initialSplitScreen = false,
-  initialMode = 'raw',
+  initialMode = 'dbscan',
 }: DashboardProps = {}) {
   const [view, setView] = useState<View>(initialView)
   const [collapsed, setCollapsed] = useState(false)
